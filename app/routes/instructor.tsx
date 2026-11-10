@@ -11,6 +11,11 @@ import { AlertTriangle, BookOpen, GraduationCap, Plus, Users } from "lucide-reac
 import { CourseImage } from "~/components/course-image";
 import { data, isRouteErrorResponse } from "react-router";
 import { CourseStatus, UserRole } from "~/db/schema";
+import { WidgetDashboard } from "~/components/widget-dashboard";
+import { parseDashboardRange } from "~/lib/dashboard-range";
+import { resolveCourseFilter } from "~/services/instructorAnalyticsService";
+import { DEFAULT_LAYOUT } from "~/widgets/registry";
+import { loadWidgetData } from "~/widgets/registry.server";
 
 export function meta() {
   return [
@@ -38,6 +43,22 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const instructorCourses = getCoursesByInstructor(currentUserId);
 
+  const url = new URL(request.url);
+  const range = parseDashboardRange(url.searchParams.get("range"));
+  const courseId = resolveCourseFilter(
+    currentUserId,
+    url.searchParams.get("course")
+  );
+  const layout = DEFAULT_LAYOUT;
+
+  // Not awaited: each widget streams in and fails on its own.
+  const widgetData = Object.fromEntries(
+    layout.map((item) => [
+      item.widgetId,
+      loadWidgetData(item.widgetId, currentUserId, range, courseId),
+    ])
+  );
+
   const coursesWithStats = instructorCourses.map((course) => {
     const lessonCount = getLessonCountForCourse(course.id);
     const enrollmentCount = getEnrollmentCountForCourse(course.id);
@@ -56,7 +77,16 @@ export async function loader({ request }: Route.LoaderArgs) {
     };
   });
 
-  return { courses: coursesWithStats };
+  return {
+    courses: coursesWithStats,
+    dashboard: {
+      range,
+      courseId,
+      courseOptions: instructorCourses.map(({ id, title }) => ({ id, title })),
+      layout,
+      widgetData,
+    },
+  };
 }
 
 function statusBadge(status: string) {
@@ -121,7 +151,7 @@ export function HydrateFallback() {
 export default function InstructorDashboard({
   loaderData,
 }: Route.ComponentProps) {
-  const { courses } = loaderData;
+  const { courses, dashboard } = loaderData;
 
   return (
     <div className="mx-auto max-w-7xl p-6 lg:p-8">
@@ -148,6 +178,8 @@ export default function InstructorDashboard({
           </Button>
         </Link>
       </div>
+
+      <WidgetDashboard {...dashboard} />
 
       {courses.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
