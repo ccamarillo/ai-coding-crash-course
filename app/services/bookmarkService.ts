@@ -1,6 +1,6 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { db } from "~/db";
-import { lessonBookmarks } from "~/db/schema";
+import { courses, lessonBookmarks, lessons, modules } from "~/db/schema";
 
 // ─── Bookmark Service ───
 // Handles lessons a user has saved to come back to later.
@@ -47,4 +47,27 @@ export function removeBookmark(userId: number, lessonId: number) {
       )
     )
     .run();
+}
+
+/**
+ * Lists the lessons a user has bookmarked, newest first, with what's needed
+ * to render a row and link to the lesson. Not filtered by access: a bookmark
+ * stays listed when the user loses access, and the lesson page explains why.
+ */
+export function listSavedLessons(userId: number) {
+  return db
+    .select({
+      lessonId: lessons.id,
+      lessonTitle: lessons.title,
+      courseTitle: courses.title,
+      courseSlug: courses.slug,
+    })
+    .from(lessonBookmarks)
+    .innerJoin(lessons, eq(lessonBookmarks.lessonId, lessons.id))
+    .innerJoin(modules, eq(lessons.moduleId, modules.id))
+    .innerJoin(courses, eq(modules.courseId, courses.id))
+    .where(eq(lessonBookmarks.userId, userId))
+    // Break timestamp ties by insertion order so the latest add stays on top
+    .orderBy(desc(lessonBookmarks.createdAt), desc(lessonBookmarks.id))
+    .all();
 }

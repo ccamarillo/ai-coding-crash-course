@@ -1,14 +1,22 @@
-import { Link } from "react-router";
+import { Link, useFetcher } from "react-router";
 import type { Route } from "./+types/dashboard";
 import { getUserEnrolledCourses } from "~/services/enrollmentService";
 import { calculateProgress, getCompletedLessonCount, getTotalLessonCount, getNextIncompleteLesson } from "~/services/progressService";
+import { listSavedLessons, removeBookmark } from "~/services/bookmarkService";
 import { getCurrentUserId } from "~/lib/session";
 import { Card, CardContent, CardFooter, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
-import { AlertTriangle, BookOpen, CheckCircle2, GraduationCap, PlayCircle } from "lucide-react";
+import { AlertTriangle, BookmarkX, BookOpen, CheckCircle2, GraduationCap, PlayCircle } from "lucide-react";
 import { CourseImage } from "~/components/course-image";
 import { data, isRouteErrorResponse } from "react-router";
+import { z } from "zod";
+import { parseFormData } from "~/lib/validation";
+
+const removeBookmarkSchema = z.object({
+  intent: z.literal("remove-bookmark"),
+  lessonId: z.coerce.number().int(),
+});
 
 export function meta() {
   return [
@@ -59,7 +67,27 @@ export async function loader({ request }: Route.LoaderArgs) {
   const completedCourses = coursesWithProgress.filter((c) => c.isCompleted);
   const inProgressCourses = coursesWithProgress.filter((c) => !c.isCompleted);
 
-  return { inProgressCourses, completedCourses };
+  const savedLessons = listSavedLessons(currentUserId);
+
+  return { savedLessons, inProgressCourses, completedCourses };
+}
+
+export async function action({ request }: Route.ActionArgs) {
+  const currentUserId = await getCurrentUserId(request);
+  if (!currentUserId) {
+    throw data("You must be logged in", { status: 401 });
+  }
+
+  const formData = await request.formData();
+  const parsed = parseFormData(formData, removeBookmarkSchema);
+  if (!parsed.success) {
+    throw data("Invalid request", { status: 400 });
+  }
+
+  // No access check: users can always remove their own bookmarks, and the
+  // service only touches the current user's.
+  removeBookmark(currentUserId, parsed.data.lessonId);
+  return { ok: true };
 }
 
 function DashboardCardSkeleton() {
@@ -102,7 +130,7 @@ export function HydrateFallback() {
 }
 
 export default function Dashboard({ loaderData }: Route.ComponentProps) {
-  const { inProgressCourses, completedCourses } = loaderData;
+  const { savedLessons, inProgressCourses, completedCourses } = loaderData;
   const totalCourses = inProgressCourses.length + completedCourses.length;
 
   return (
@@ -122,6 +150,17 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
           Track your learning progress
         </p>
       </div>
+
+      {savedLessons.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-4 text-xl font-semibold">Saved lessons</h2>
+          <ul className="divide-y rounded-lg border">
+            {savedLessons.map((lesson) => (
+              <SavedLessonRow key={lesson.lessonId} lesson={lesson} />
+            ))}
+          </ul>
+        </section>
+      )}
 
       {totalCourses === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -260,6 +299,42 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
         </div>
       )}
     </div>
+  );
+}
+
+function SavedLessonRow({
+  lesson,
+}: {
+  lesson: Route.ComponentProps["loaderData"]["savedLessons"][number];
+}) {
+  const fetcher = useFetcher();
+
+  return (
+    <li className="flex items-center justify-between gap-4 px-4 py-3">
+      <Link
+        to={`/courses/${lesson.courseSlug}/lessons/${lesson.lessonId}`}
+        className="min-w-0 flex-1 hover:text-primary"
+      >
+        <span className="block truncate font-medium">{lesson.lessonTitle}</span>
+        <span className="block truncate text-sm text-muted-foreground">
+          {lesson.courseTitle}
+        </span>
+      </Link>
+      <fetcher.Form method="post" className="shrink-0">
+        <input type="hidden" name="intent" value="remove-bookmark" />
+        <input type="hidden" name="lessonId" value={lesson.lessonId} />
+        <Button
+          type="submit"
+          variant="ghost"
+          size="icon"
+          aria-label={`Remove bookmark on ${lesson.lessonTitle}`}
+          title="Remove bookmark"
+          disabled={fetcher.state !== "idle"}
+        >
+          <BookmarkX className="size-5" />
+        </Button>
+      </fetcher.Form>
+    </li>
   );
 }
 

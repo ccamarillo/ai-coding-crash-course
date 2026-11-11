@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createTestDb, seedBaseData } from "~/test/setup";
 import * as schema from "~/db/schema";
 
@@ -16,8 +16,10 @@ import {
   addBookmark,
   removeBookmark,
   isLessonBookmarked,
+  listSavedLessons,
 } from "./bookmarkService";
 
+let moduleId: number;
 let lessonId: number;
 
 describe("bookmarkService", () => {
@@ -30,9 +32,10 @@ describe("bookmarkService", () => {
       .values({ courseId: base.course.id, title: "Module 1", position: 1 })
       .returning()
       .get();
+    moduleId = mod.id;
     lessonId = testDb
       .insert(schema.lessons)
-      .values({ moduleId: mod.id, title: "Lesson 1", position: 1 })
+      .values({ moduleId, title: "Lesson 1", position: 1 })
       .returning()
       .get().id;
   });
@@ -79,6 +82,118 @@ describe("bookmarkService", () => {
       addBookmark(base.user.id, lessonId);
 
       expect(isLessonBookmarked(base.instructor.id, lessonId)).toBe(false);
+    });
+  });
+
+  describe("listSavedLessons", () => {
+    let secondLessonId: number;
+    let otherCourseLessonId: number;
+
+    beforeEach(() => {
+      secondLessonId = testDb
+        .insert(schema.lessons)
+        .values({ moduleId, title: "Lesson 2", position: 2 })
+        .returning()
+        .get().id;
+
+      const otherCourse = testDb
+        .insert(schema.courses)
+        .values({
+          title: "Other Course",
+          slug: "other-course",
+          description: "Another course",
+          salesCopy: "Sales copy",
+          instructorId: base.instructor.id,
+          categoryId: base.category.id,
+          status: schema.CourseStatus.Archived,
+        })
+        .returning()
+        .get();
+      const otherMod = testDb
+        .insert(schema.modules)
+        .values({ courseId: otherCourse.id, title: "Other Module", position: 1 })
+        .returning()
+        .get();
+      otherCourseLessonId = testDb
+        .insert(schema.lessons)
+        .values({ moduleId: otherMod.id, title: "Other Lesson", position: 1 })
+        .returning()
+        .get().id;
+
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    function bookmarkAt(userId: number, id: number, at: string) {
+      vi.setSystemTime(new Date(at));
+      addBookmark(userId, id);
+    }
+
+    it("returns an empty list when the user has no bookmarks", () => {
+      expect(listSavedLessons(base.user.id)).toEqual([]);
+    });
+
+    it("lists saved lessons newest first with their lesson and course details", () => {
+      bookmarkAt(base.user.id, lessonId, "2026-01-01T00:00:00.000Z");
+      bookmarkAt(base.user.id, otherCourseLessonId, "2026-01-03T00:00:00.000Z");
+      bookmarkAt(base.user.id, secondLessonId, "2026-01-02T00:00:00.000Z");
+
+      expect(listSavedLessons(base.user.id)).toEqual([
+        {
+          lessonId: otherCourseLessonId,
+          lessonTitle: "Other Lesson",
+          courseTitle: "Other Course",
+          courseSlug: "other-course",
+        },
+        {
+          lessonId: secondLessonId,
+          lessonTitle: "Lesson 2",
+          courseTitle: "Test Course",
+          courseSlug: "test-course",
+        },
+        {
+          lessonId,
+          lessonTitle: "Lesson 1",
+          courseTitle: "Test Course",
+          courseSlug: "test-course",
+        },
+      ]);
+    });
+
+    it("lists lessons bookmarked at the same moment latest-added first", () => {
+      bookmarkAt(base.user.id, lessonId, "2026-01-01T00:00:00.000Z");
+      bookmarkAt(base.user.id, secondLessonId, "2026-01-01T00:00:00.000Z");
+
+      expect(listSavedLessons(base.user.id).map((l) => l.lessonId)).toEqual([
+        secondLessonId,
+        lessonId,
+      ]);
+    });
+
+    it("drops a lesson once its bookmark is removed", () => {
+      bookmarkAt(base.user.id, lessonId, "2026-01-01T00:00:00.000Z");
+      bookmarkAt(base.user.id, secondLessonId, "2026-01-02T00:00:00.000Z");
+
+      removeBookmark(base.user.id, secondLessonId);
+
+      expect(listSavedLessons(base.user.id).map((l) => l.lessonId)).toEqual([
+        lessonId,
+      ]);
+    });
+
+    it("never lists one user's bookmarks for another user", () => {
+      bookmarkAt(base.user.id, lessonId, "2026-01-01T00:00:00.000Z");
+      bookmarkAt(base.instructor.id, secondLessonId, "2026-01-02T00:00:00.000Z");
+
+      expect(listSavedLessons(base.user.id).map((l) => l.lessonId)).toEqual([
+        lessonId,
+      ]);
+      expect(listSavedLessons(base.instructor.id).map((l) => l.lessonId)).toEqual([
+        secondLessonId,
+      ]);
     });
   });
 
