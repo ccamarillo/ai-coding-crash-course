@@ -1,5 +1,6 @@
 import type { DashboardRange } from "~/lib/dashboard-range";
 import {
+  getCompletionRate,
   getGrossSales,
   getNewEnrollments,
   getQuizScores,
@@ -15,6 +16,7 @@ type WidgetDataFunction<K extends WidgetId> = (
 export const widgetDataFunctions: { [K in WidgetId]: WidgetDataFunction<K> } = {
   enrollments: getNewEnrollments,
   "gross-sales": getGrossSales,
+  "completion-rate": getCompletionRate,
   "quiz-scores": getQuizScores,
 };
 

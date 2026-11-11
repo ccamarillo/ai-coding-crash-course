@@ -3,11 +3,12 @@
 // Client-safe: the filter controls import the options from here.
 
 export const DASHBOARD_RANGES = [
-  { value: "7d", label: "Last 7 days", days: 7 },
-  { value: "30d", label: "Last 30 days", days: 30 },
-  { value: "90d", label: "Last 90 days", days: 90 },
-  { value: "1y", label: "Last year", days: 365 },
-  { value: "all", label: "All time", days: null },
+  // Short ranges are too recent for some metrics, e.g. completion, to settle.
+  { value: "7d", label: "Last 7 days", days: 7, short: true },
+  { value: "30d", label: "Last 30 days", days: 30, short: false },
+  { value: "90d", label: "Last 90 days", days: 90, short: false },
+  { value: "1y", label: "Last year", days: 365, short: false },
+  { value: "all", label: "All time", days: null, short: false },
 ] as const;
 
 export type DashboardRange = (typeof DASHBOARD_RANGES)[number]["value"];
@@ -24,6 +25,10 @@ export function parseDashboardRange(value: string | null): DashboardRange {
 
 export function getDashboardRangeLabel(range: DashboardRange) {
   return findDashboardRange(range)!.label;
+}
+
+export function isShortDashboardRange(range: DashboardRange) {
+  return findDashboardRange(range)!.short;
 }
 
 /**

@@ -31,9 +31,22 @@ export type QuizScoreSummary =
   | { bestAttempts: number; averageScore: number; passRate: number }
   | { bestAttempts: 0; averageScore: null; passRate: null };
 
-export type QuizScoresResult = QuizScoreSummary & {
-  byCourse: (QuizScoreSummary & { courseId: number; title: string })[];
+/**
+ * Of the (student, course) enrollments started in the range, how many are now
+ * complete. The rate is a 0–1 fraction, null when nothing started in range.
+ */
+export type CompletionSummary =
+  | { enrolled: number; completed: number; rate: number }
+  | { enrolled: 0; completed: 0; rate: null };
+
+/** A summary plus the same summary for each course in scope. */
+type WithCourseBreakdown<TSummary> = TSummary & {
+  byCourse: (TSummary & { courseId: number; title: string })[];
 };
+
+export type CompletionRateResult = WithCourseBreakdown<CompletionSummary>;
+
+export type QuizScoresResult = WithCourseBreakdown<QuizScoreSummary>;
 
 /** Rows whose timestamp column falls in the range; no condition for "all". */
 function inRange(column: SQLWrapper, range: DashboardRange) {
@@ -136,10 +149,6 @@ export function getGrossSales(
   return { total: sumValues(byCourse), byCourse };
 }
 
-function sumValues(byCourse: CourseMetric[]) {
-  return byCourse.reduce((sum, course) => sum + course.value, 0);
-}
-
 /**
  * For each (student, quiz) pair in the instructor's courses, the best attempt
  * made in the range. Reports the average of those best scores and the share of
@@ -216,4 +225,68 @@ function summarizeQuizAttempts(
     averageScore: totalScore / attempts.length,
     passRate: passedCount / attempts.length,
   };
+}
+
+/**
+ * Among enrollments whose enrollment date falls in the range, the share that
+ * now have a completion timestamp. Grouping by start date keeps the rate at or
+ * below 100%. Only courses with enrollments in the range appear in the
+ * breakdown.
+ */
+export function getCompletionRate(
+  instructorId: number,
+  range: DashboardRange,
+  courseId: number | null
+): CompletionRateResult {
+  const enrolled = sql<number>`count(distinct ${enrollments.userId})`;
+  const completed = sql<number>`count(distinct case when ${enrollments.completedAt} is not null then ${enrollments.userId} end)`;
+
+  const rows = db
+    .select({
+      courseId: courses.id,
+      title: courses.title,
+      enrolled,
+      completed,
+    })
+    .from(courses)
+    .innerJoin(enrollments, eq(enrollments.courseId, courses.id))
+    .where(
+      and(
+        courseScope(instructorId, courseId),
+        inRange(enrollments.enrolledAt, range)
+      )
+    )
+    .groupBy(courses.id)
+    .orderBy(desc(enrolled), courses.title)
+    .all();
+
+  const byCourse = rows.map((row) => ({
+    courseId: row.courseId,
+    title: row.title,
+    ...summarizeCompletion(row.enrolled, row.completed),
+  }));
+
+  return {
+    ...summarizeCompletion(
+      sumOf(rows.map((row) => row.enrolled)),
+      sumOf(rows.map((row) => row.completed))
+    ),
+    byCourse,
+  };
+}
+
+function summarizeCompletion(
+  enrolled: number,
+  completed: number
+): CompletionSummary {
+  if (enrolled === 0) return { enrolled: 0, completed: 0, rate: null };
+  return { enrolled, completed, rate: completed / enrolled };
+}
+
+function sumValues(byCourse: CourseMetric[]) {
+  return sumOf(byCourse.map((course) => course.value));
+}
+
+function sumOf(values: number[]) {
+  return values.reduce((sum, value) => sum + value, 0);
 }

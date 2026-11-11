@@ -1,4 +1,4 @@
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, isNull, sql } from "drizzle-orm";
 import { db } from "~/db";
 import {
   enrollments,
@@ -110,15 +110,23 @@ export function unenrollUser(userId: number, courseId: number) {
     .get();
 }
 
+/**
+ * Records the completion time once. An already completed enrollment keeps its
+ * original timestamp.
+ */
 export function markEnrollmentComplete(userId: number, courseId: number) {
-  return db
-    .update(enrollments)
+  db.update(enrollments)
     .set({ completedAt: new Date().toISOString() })
     .where(
-      and(eq(enrollments.userId, userId), eq(enrollments.courseId, courseId))
+      and(
+        eq(enrollments.userId, userId),
+        eq(enrollments.courseId, courseId),
+        isNull(enrollments.completedAt)
+      )
     )
-    .returning()
-    .get();
+    .run();
+
+  return findEnrollment(userId, courseId);
 }
 
 export function getUserEnrolledCourses(userId: number) {

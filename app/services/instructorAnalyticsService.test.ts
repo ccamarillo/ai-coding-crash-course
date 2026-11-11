@@ -15,6 +15,7 @@ vi.mock("~/db", () => ({
 import { createTeamPurchase } from "./purchaseService";
 import { redeemCoupon } from "./couponService";
 import {
+  getCompletionRate,
   getGrossSales,
   getNewEnrollments,
   getQuizScores,
@@ -51,10 +52,15 @@ function createCourse(slug: string, instructorId: number) {
     .get();
 }
 
-function enroll(userId: number, courseId: number, enrolledAt: string) {
+function enroll(
+  userId: number,
+  courseId: number,
+  enrolledAt: string,
+  completedAt: string | null = null
+) {
   testDb
     .insert(schema.enrollments)
-    .values({ userId, courseId, enrolledAt })
+    .values({ userId, courseId, enrolledAt, completedAt })
     .run();
 }
 
@@ -454,6 +460,107 @@ describe("instructorAnalyticsService", () => {
         averageScore: null,
         passRate: null,
         bestAttempts: 0,
+        byCourse: [],
+      });
+    });
+  });
+
+  describe("getCompletionRate", () => {
+    it("measures the share of enrollments started in the range that are now complete", () => {
+      const s2 = createStudent("s2@example.com");
+      const s3 = createStudent("s3@example.com");
+      enroll(base.user.id, base.course.id, daysBefore(20), daysBefore(2));
+      enroll(s2.id, base.course.id, daysBefore(10));
+      // Started before the range, completed inside it: not in the group.
+      enroll(s3.id, base.course.id, daysBefore(60), daysBefore(1));
+
+      const result = getCompletionRate(base.instructor.id, "30d", null);
+
+      expect(result.rate).toBe(0.5);
+      expect(result.completed).toBe(1);
+      expect(result.enrolled).toBe(2);
+    });
+
+    it("counts only enrollments in the instructor's own courses", () => {
+      const otherCourse = createOtherInstructorCourse();
+      enroll(base.user.id, base.course.id, daysBefore(5));
+      enroll(base.user.id, otherCourse.id, daysBefore(5), daysBefore(1));
+
+      expect(getCompletionRate(base.instructor.id, "30d", null)).toEqual({
+        enrolled: 1,
+        completed: 0,
+        rate: 0,
+        byCourse: [
+          {
+            courseId: base.course.id,
+            title: "Test Course",
+            enrolled: 1,
+            completed: 0,
+            rate: 0,
+          },
+        ],
+      });
+    });
+
+    it("narrows to the selected course and breaks down by course", () => {
+      const secondCourse = createCourse("second-course", base.instructor.id);
+      const s2 = createStudent("s2@example.com");
+      enroll(base.user.id, base.course.id, daysBefore(5), daysBefore(1));
+      enroll(base.user.id, secondCourse.id, daysBefore(5), daysBefore(1));
+      enroll(s2.id, secondCourse.id, daysBefore(5));
+
+      const all = getCompletionRate(base.instructor.id, "30d", null);
+      expect(all.rate).toBeCloseTo(2 / 3);
+      expect(all.byCourse.map((c) => [c.title, c.rate])).toEqual([
+        ["second-course", 0.5],
+        ["Test Course", 1],
+      ]);
+
+      const filtered = getCompletionRate(
+        base.instructor.id,
+        "30d",
+        secondCourse.id
+      );
+      expect(filtered.rate).toBe(0.5);
+      expect(filtered.byCourse.map((c) => c.title)).toEqual(["second-course"]);
+    });
+
+    it("counts duplicate enrollment rows once", () => {
+      enroll(base.user.id, base.course.id, daysBefore(5), daysBefore(1));
+      enroll(base.user.id, base.course.id, daysBefore(4), daysBefore(1));
+
+      const result = getCompletionRate(base.instructor.id, "30d", null);
+
+      expect(result.enrolled).toBe(1);
+      expect(result.rate).toBe(1);
+    });
+
+    it("includes an enrollment exactly at the start of the range and excludes one just before", () => {
+      const s2 = createStudent("s2@example.com");
+      // NOW is 2026-06-15T12:00Z, so 7 days starts at 2026-06-08T12:00Z.
+      enroll(base.user.id, base.course.id, "2026-06-08T12:00:00.000Z");
+      enroll(s2.id, base.course.id, "2026-06-08T11:59:59.999Z", daysBefore(1));
+
+      expect(getCompletionRate(base.instructor.id, "7d", null).rate).toBe(0);
+      expect(getCompletionRate(base.instructor.id, "30d", null).rate).toBe(0.5);
+    });
+
+    it("counts enrollments of any age for the all-time range", () => {
+      const s2 = createStudent("s2@example.com");
+      enroll(base.user.id, base.course.id, daysBefore(1));
+      enroll(s2.id, base.course.id, daysBefore(3 * 365), daysBefore(300));
+
+      expect(getCompletionRate(base.instructor.id, "1y", null).rate).toBe(0);
+      expect(getCompletionRate(base.instructor.id, "all", null).rate).toBe(0.5);
+    });
+
+    it("returns an empty state when no enrollments started in the range", () => {
+      enroll(base.user.id, base.course.id, daysBefore(60), daysBefore(1));
+
+      expect(getCompletionRate(base.instructor.id, "30d", null)).toEqual({
+        enrolled: 0,
+        completed: 0,
+        rate: null,
         byCourse: [],
       });
     });

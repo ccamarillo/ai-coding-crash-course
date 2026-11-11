@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createTestDb, seedBaseData } from "~/test/setup";
 import * as schema from "~/db/schema";
 
@@ -219,6 +219,24 @@ describe("enrollmentService", () => {
       expect(result).toBeDefined();
       expect(result!.completedAt).toBeDefined();
       expect(result!.completedAt).not.toBeNull();
+    });
+
+    describe("when called again", () => {
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("keeps the first completion timestamp", () => {
+        enrollUser(base.user.id, base.course.id, false, false);
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-06-01T12:00:00.000Z"));
+        markEnrollmentComplete(base.user.id, base.course.id);
+        vi.setSystemTime(new Date("2026-06-15T12:00:00.000Z"));
+
+        const result = markEnrollmentComplete(base.user.id, base.course.id);
+
+        expect(result?.completedAt).toBe("2026-06-01T12:00:00.000Z");
+      });
     });
   });
 

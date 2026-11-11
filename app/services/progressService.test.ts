@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createTestDb, seedBaseData } from "~/test/setup";
 import * as schema from "~/db/schema";
 
@@ -24,6 +24,7 @@ import {
   isLessonCompleted,
   getNextIncompleteLesson,
 } from "./progressService";
+import { enrollUser, findEnrollment } from "./enrollmentService";
 
 // Helper to create a module with lessons in the test db
 function createModuleWithLessons(
@@ -98,6 +99,46 @@ describe("progressService", () => {
       const progress = markLessonComplete(base.user.id, lessons[0].id);
 
       expect(progress.status).toBe(schema.LessonProgressStatus.Completed);
+    });
+
+    it("marks the enrollment complete when the final incomplete lesson is completed", () => {
+      const { lessons } = createModuleWithLessons(base.course.id, "Module 1", 1, 2);
+      enrollUser(base.user.id, base.course.id, false, false);
+
+      markLessonComplete(base.user.id, lessons[1].id);
+      markLessonComplete(base.user.id, lessons[0].id);
+
+      expect(findEnrollment(base.user.id, base.course.id)?.completedAt).not.toBeNull();
+    });
+
+    it("leaves the enrollment incomplete when a non-final lesson is completed", () => {
+      const { lessons } = createModuleWithLessons(base.course.id, "Module 1", 1, 2);
+      enrollUser(base.user.id, base.course.id, false, false);
+
+      markLessonComplete(base.user.id, lessons[0].id);
+
+      expect(findEnrollment(base.user.id, base.course.id)?.completedAt).toBeNull();
+    });
+
+    describe("when the course is already complete", () => {
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("keeps the original completion timestamp when a lesson is completed again", () => {
+        const { lessons } = createModuleWithLessons(base.course.id, "Module 1", 1, 1);
+        enrollUser(base.user.id, base.course.id, false, false);
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-06-01T12:00:00.000Z"));
+        markLessonComplete(base.user.id, lessons[0].id);
+
+        vi.setSystemTime(new Date("2026-06-15T12:00:00.000Z"));
+        markLessonComplete(base.user.id, lessons[0].id);
+
+        expect(findEnrollment(base.user.id, base.course.id)?.completedAt).toBe(
+          "2026-06-01T12:00:00.000Z"
+        );
+      });
     });
   });
 
