@@ -25,6 +25,7 @@ import {
   reorderModules,
 } from "./moduleService";
 import { createLesson } from "./lessonService";
+import { addBookmark, isLessonBookmarked } from "./bookmarkService";
 
 describe("moduleService", () => {
   beforeEach(() => {
@@ -131,6 +132,20 @@ describe("moduleService", () => {
       expect(deleted!.id).toBe(mod.id);
 
       expect(getModuleById(mod.id)).toBeUndefined();
+    });
+
+    it("deletes bookmarks on all of the module's lessons", () => {
+      const mod = createModule(base.course.id, "To Delete", 1);
+      const l1 = createLesson(mod.id, "Lesson 1", null, null, 1, null);
+      const l2 = createLesson(mod.id, "Lesson 2", null, null, 2, null);
+      addBookmark(base.user.id, l1.id);
+      addBookmark(base.user.id, l2.id);
+
+      expect(() => deleteModule(mod.id)).not.toThrow();
+
+      expect(getModuleById(mod.id)).toBeUndefined();
+      expect(isLessonBookmarked(base.user.id, l1.id)).toBe(false);
+      expect(isLessonBookmarked(base.user.id, l2.id)).toBe(false);
     });
   });
 

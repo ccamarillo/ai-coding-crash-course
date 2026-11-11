@@ -276,6 +276,30 @@ export const courseRatings = sqliteTable(
   ]
 );
 
+export const lessonBookmarks = sqliteTable(
+  "lesson_bookmarks",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id),
+    // Cascade so deleteLesson and deleteModule (which deletes lessons
+    // directly) both take bookmarks with them.
+    lessonId: integer("lesson_id")
+      .notNull()
+      .references(() => lessons.id, { onDelete: "cascade" }),
+    createdAt: text("created_at")
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (table) => [
+    uniqueIndex("lesson_bookmarks_user_lesson_unique").on(
+      table.userId,
+      table.lessonId
+    ),
+  ]
+);
+
 export const comments = sqliteTable(
   "comments",
   {
