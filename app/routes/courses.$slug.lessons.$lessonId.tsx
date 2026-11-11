@@ -31,6 +31,11 @@ import {
   markLessonInProgress,
 } from "~/services/progressService";
 import {
+  addBookmark,
+  removeBookmark,
+  isLessonBookmarked,
+} from "~/services/bookmarkService";
+import {
   getLastWatchPosition,
   calculateWatchProgress,
 } from "~/services/videoTrackingService";
@@ -45,6 +50,7 @@ import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import {
   AlertTriangle,
+  Bookmark,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -75,6 +81,11 @@ const lessonParamsSchema = z.object({
 
 const markCompleteSchema = z.object({
   intent: z.literal("mark-complete"),
+});
+
+const bookmarkSchema = z.object({
+  intent: z.literal("bookmark"),
+  bookmarked: z.enum(["true", "false"]).transform((v) => v === "true"),
 });
 
 const createCommentSchema = z.object({
@@ -233,6 +244,12 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     ? await renderThread(getLessonThread(lessonId))
     : [];
 
+  // Only people who can read the lesson get a bookmark control.
+  const bookmarked =
+    canViewContent && currentUserId
+      ? isLessonBookmarked(currentUserId, lessonId)
+      : false;
+
   // Render lesson content from Markdown to HTML server-side
   const contentHtml = lesson.content
     ? await renderMarkdown(lesson.content)
@@ -325,6 +342,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     pppPurchaseCountry,
     comments,
     canViewContent,
+    bookmarked,
     canModerate: access.isStaff,
     instructorName: instructor?.name ?? "your instructor",
   };
@@ -403,6 +421,32 @@ export async function action({ params, request }: Route.ActionArgs) {
       }
       throw error;
     }
+  }
+
+  if (intent === "bookmark") {
+    // Re-check access here: the loader hiding the control doesn't stop a
+    // direct post.
+    await requireContentAccess(request, course.id);
+
+    // Scope the lesson to this course so access to one course can't be used
+    // to bookmark a lesson in another.
+    const lesson = getLessonById(lessonId);
+    const mod = lesson ? getModuleById(lesson.moduleId) : undefined;
+    if (!mod || mod.courseId !== course.id) {
+      throw data("Lesson not found in this course", { status: 404 });
+    }
+
+    const parsed = parseFormData(formData, bookmarkSchema);
+    if (!parsed.success) {
+      throw data("Invalid bookmark request", { status: 400 });
+    }
+
+    if (parsed.data.bookmarked) {
+      addBookmark(currentUserId, lessonId);
+    } else {
+      removeBookmark(currentUserId, lessonId);
+    }
+    return { ok: true };
   }
 
   if (intent === "mark-complete") {
@@ -489,6 +533,7 @@ export default function LessonViewer({ loaderData }: Route.ComponentProps) {
     pppPurchaseCountry,
     comments,
     canViewContent,
+    bookmarked,
     canModerate,
     instructorName,
   } = loaderData;
@@ -591,7 +636,12 @@ export default function LessonViewer({ loaderData }: Route.ComponentProps) {
 
         <div className="mx-auto max-w-4xl">
           {/* Lesson Title */}
-          <h1 className="mb-2 text-3xl font-bold">{lesson.title}</h1>
+          <div className="mb-2 flex items-start gap-2">
+            <h1 className="text-3xl font-bold">{lesson.title}</h1>
+            {canViewContent && currentUserId && (
+              <BookmarkToggle lessonId={lesson.id} bookmarked={bookmarked} />
+            )}
+          </div>
           <div className="mb-6 flex items-center gap-3">
             {lesson.durationMinutes && (
               <div className="flex items-center gap-1 text-sm text-muted-foreground">
@@ -762,6 +812,41 @@ export default function LessonViewer({ loaderData }: Route.ComponentProps) {
         </div>
       </div>
     </div>
+  );
+}
+
+function BookmarkToggle({
+  lessonId,
+  bookmarked,
+}: {
+  lessonId: number;
+  bookmarked: boolean;
+}) {
+  const fetcher = useFetcher({ key: `bookmark-${lessonId}` });
+
+  // Show the requested state while the save is in flight, so the icon
+  // responds to the click straight away.
+  const pending = fetcher.formData?.get("bookmarked");
+  const isBookmarked = pending ? pending === "true" : bookmarked;
+  const label = isBookmarked ? "Remove bookmark" : "Bookmark this lesson";
+
+  return (
+    <fetcher.Form method="post" className="mt-0.5 shrink-0">
+      <input type="hidden" name="intent" value="bookmark" />
+      <input type="hidden" name="bookmarked" value={String(!isBookmarked)} />
+      <Button
+        type="submit"
+        variant="ghost"
+        size="icon"
+        aria-label={label}
+        aria-pressed={isBookmarked}
+        title={label}
+      >
+        <Bookmark
+          className={cn("size-5", isBookmarked && "fill-current text-primary")}
+        />
+      </Button>
+    </fetcher.Form>
   );
 }
 
