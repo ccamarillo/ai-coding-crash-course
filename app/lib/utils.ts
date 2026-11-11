@@ -11,6 +11,11 @@ export function cn(...inputs: ClassValue[]) {
  */
 export function formatPrice(cents: number | null | undefined): string {
   if (!cents) return "Free";
+  return formatDollars(cents);
+}
+
+/** Format an amount in cents as "$X.XX", including "$0.00" for zero. */
+export function formatDollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
