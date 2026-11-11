@@ -1,4 +1,5 @@
 import type { MetricResult } from "~/services/instructorAnalyticsService";
+import { getDashboardRangeLabel } from "~/lib/dashboard-range";
 import type { WidgetDefinition } from "./registry";
 import { StatTile } from "./stat-tile";
 
@@ -10,10 +11,10 @@ export const enrollmentsWidget: WidgetDefinition<MetricResult> = {
   defaultSize: { w: 3, h: 2 },
   minSize: { w: 3, h: 2 },
   maxSize: { w: 12, h: 4 },
-  Tile: ({ data, size, rangeLabel }) => (
+  Tile: ({ data, size, range }) => (
     <StatTile
       headline={data.total.toLocaleString()}
-      caption={`${data.total === 1 ? "enrollment" : "enrollments"} · ${rangeLabel.toLowerCase()}`}
+      caption={`${data.total === 1 ? "enrollment" : "enrollments"} · ${getDashboardRangeLabel(range).toLowerCase()}`}
       size={size}
       breakdown={data.byCourse.map((course) => ({
         key: course.courseId,

@@ -13,7 +13,6 @@ import {
 import {
   DASHBOARD_RANGES,
   DEFAULT_DASHBOARD_RANGE,
-  getDashboardRangeLabel,
   type DashboardRange,
 } from "~/lib/dashboard-range";
 import { widgets, type WidgetLayoutItem } from "~/widgets/registry";
@@ -35,8 +34,6 @@ export function WidgetDashboard({
   layout,
   widgetData,
 }: WidgetDashboardProps) {
-  const rangeLabel = getDashboardRangeLabel(range);
-
   // Reading order for the stacked single-column layout on narrow screens.
   const ordered = [...layout].sort((a, b) => a.y - b.y || a.x - b.x);
 
@@ -62,7 +59,7 @@ export function WidgetDashboard({
             <WidgetTile
               item={item}
               data={widgetData[item.widgetId]}
-              rangeLabel={rangeLabel}
+              range={range}
             />
           </div>
         ))}
@@ -131,11 +128,11 @@ function DashboardFilters({
 function WidgetTile({
   item,
   data,
-  rangeLabel,
+  range,
 }: {
   item: WidgetLayoutItem;
   data: Promise<unknown> | undefined;
-  rangeLabel: string;
+  range: DashboardRange;
 }) {
   const widget = widgets[item.widgetId];
   const size = { w: item.w, h: item.h };
@@ -151,11 +148,7 @@ function WidgetTile({
         <Suspense fallback={<TileSkeleton />}>
           <Await resolve={data} errorElement={<TileError />}>
             {(resolved) => (
-              <widget.Tile
-                data={resolved as never}
-                size={size}
-                rangeLabel={rangeLabel}
-              />
+              <widget.Tile data={resolved as never} size={size} range={range} />
             )}
           </Await>
         </Suspense>

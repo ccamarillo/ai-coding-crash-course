@@ -8,6 +8,7 @@ import {
   enrollments,
   LessonProgressStatus,
 } from "~/db/schema";
+import { markEnrollmentComplete } from "./enrollmentService";
 
 // ─── Progress Service ───
 // Handles lesson completion tracking and course progress calculation.
@@ -58,28 +59,49 @@ export function getLessonProgressForCourse(userId: number, courseId: number) {
 export function markLessonComplete(userId: number, lessonId: number) {
   const existing = getLessonProgress(userId, lessonId);
 
-  if (existing) {
-    return db
-      .update(lessonProgress)
-      .set({
-        status: LessonProgressStatus.Completed,
-        completedAt: new Date().toISOString(),
-      })
-      .where(eq(lessonProgress.id, existing.id))
-      .returning()
-      .get();
-  }
+  const progress = existing
+    ? db
+        .update(lessonProgress)
+        .set({
+          status: LessonProgressStatus.Completed,
+          completedAt: new Date().toISOString(),
+        })
+        .where(eq(lessonProgress.id, existing.id))
+        .returning()
+        .get()
+    : db
+        .insert(lessonProgress)
+        .values({
+          userId,
+          lessonId,
+          status: LessonProgressStatus.Completed,
+          completedAt: new Date().toISOString(),
+        })
+        .returning()
+        .get();
 
-  return db
-    .insert(lessonProgress)
-    .values({
-      userId,
-      lessonId,
-      status: LessonProgressStatus.Completed,
-      completedAt: new Date().toISOString(),
-    })
-    .returning()
+  completeEnrollmentIfFinished(userId, lessonId);
+
+  return progress;
+}
+
+// Completing the last remaining lesson of a course completes the enrollment.
+function completeEnrollmentIfFinished(userId: number, lessonId: number) {
+  const lesson = db
+    .select({ courseId: modules.courseId })
+    .from(lessons)
+    .innerJoin(modules, eq(lessons.moduleId, modules.id))
+    .where(eq(lessons.id, lessonId))
     .get();
+
+  if (!lesson) return;
+
+  if (
+    getCompletedLessonCount(userId, lesson.courseId) ===
+    getTotalLessonCount(lesson.courseId)
+  ) {
+    markEnrollmentComplete(userId, lesson.courseId);
+  }
 }
 
 export function markLessonInProgress(userId: number, lessonId: number) {

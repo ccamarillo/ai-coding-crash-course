@@ -1,4 +1,6 @@
 import type { ComponentType } from "react";
+import type { DashboardRange } from "~/lib/dashboard-range";
+import { completionRateWidget } from "./completion-rate";
 import { enrollmentsWidget } from "./enrollments";
 import { grossSalesWidget } from "./gross-sales";
 import { quizScoresWidget } from "./quiz-scores";
@@ -13,7 +15,7 @@ export type WidgetSize = { w: number; h: number };
 export type WidgetTileProps<TData> = {
   data: TData;
   size: WidgetSize;
-  rangeLabel: string;
+  range: DashboardRange;
 };
 
 export type WidgetDefinition<TData> = {
@@ -29,6 +31,7 @@ export type WidgetDefinition<TData> = {
 export const widgets = {
   enrollments: enrollmentsWidget,
   "gross-sales": grossSalesWidget,
+  "completion-rate": completionRateWidget,
   "quiz-scores": quizScoresWidget,
 };
 
@@ -44,7 +47,8 @@ export type WidgetLayoutItem = { widgetId: WidgetId } & WidgetSize & {
 
 /** The layout shown to instructors who have not customized their dashboard. */
 export const DEFAULT_LAYOUT: WidgetLayoutItem[] = [
-  { widgetId: "enrollments", x: 0, y: 0, w: 4, h: 3 },
-  { widgetId: "gross-sales", x: 4, y: 0, w: 4, h: 3 },
-  { widgetId: "quiz-scores", x: 8, y: 0, w: 4, h: 3 },
+  { widgetId: "enrollments", x: 0, y: 0, w: 6, h: 3 },
+  { widgetId: "gross-sales", x: 6, y: 0, w: 6, h: 3 },
+  { widgetId: "completion-rate", x: 0, y: 3, w: 6, h: 3 },
+  { widgetId: "quiz-scores", x: 6, y: 3, w: 6, h: 3 },
 ];

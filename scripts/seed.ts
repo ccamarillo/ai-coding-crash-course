@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import path from "path";
@@ -1381,7 +1381,7 @@ You've completed the Building REST APIs course. You now have the skills to build
   // ─── Enrollments ───
   // Varied enrollment patterns:
   // - Emma: enrolled in both courses (nearly complete in course 1, mid-way in course 2)
-  // - James: enrolled in course 1 only (completed)
+  // - James: enrolled in course 1 only (completed — see Course Completion)
   // - Olivia: enrolled in both courses (just started course 1, mid-way in course 2)
   // - Liam: enrolled in course 2 only (just started, abandoned)
   // - Sophia: enrolled in course 1 only (recently enrolled, barely started)
@@ -1390,12 +1390,7 @@ You've completed the Building REST APIs course. You now have the skills to build
     .values([
       { userId: students[0].id, courseId: course1.id, enrolledAt: daysAgo(50) },
       { userId: students[0].id, courseId: course2.id, enrolledAt: daysAgo(40) },
-      {
-        userId: students[1].id,
-        courseId: course1.id,
-        enrolledAt: daysAgo(45),
-        completedAt: daysAgo(10),
-      },
+      { userId: students[1].id, courseId: course1.id, enrolledAt: daysAgo(45) },
       { userId: students[2].id, courseId: course1.id, enrolledAt: daysAgo(35) },
       { userId: students[2].id, courseId: course2.id, enrolledAt: daysAgo(30) },
       { userId: students[3].id, courseId: course2.id, enrolledAt: daysAgo(25) },
@@ -1655,6 +1650,48 @@ You've completed the Building REST APIs course. You now have the skills to build
   markInProgress(students[4].id, course1LessonIds[1]);
 
   console.log("Created lesson progress records.");
+
+  // ─── Course Completion ───
+  // Same rule as the app: an enrollment is complete exactly when every lesson
+  // in its course is complete, dated by the student's latest lesson completion.
+
+  const enrollmentProgress = db
+    .select({
+      enrollmentId: schema.enrollments.id,
+      totalLessons: sql<number>`count(${schema.lessons.id})`,
+      completedLessons: sql<number>`count(${schema.lessonProgress.id})`,
+      lastCompletedAt: sql<
+        string | null
+      >`max(${schema.lessonProgress.completedAt})`,
+    })
+    .from(schema.enrollments)
+    .innerJoin(
+      schema.modules,
+      eq(schema.modules.courseId, schema.enrollments.courseId)
+    )
+    .innerJoin(schema.lessons, eq(schema.lessons.moduleId, schema.modules.id))
+    .leftJoin(
+      schema.lessonProgress,
+      and(
+        eq(schema.lessonProgress.lessonId, schema.lessons.id),
+        eq(schema.lessonProgress.userId, schema.enrollments.userId),
+        eq(schema.lessonProgress.status, LessonProgressStatus.Completed)
+      )
+    )
+    .groupBy(schema.enrollments.id)
+    .all();
+
+  const completedEnrollments = enrollmentProgress.filter(
+    (e) => e.completedLessons === e.totalLessons
+  );
+  for (const enrollment of completedEnrollments) {
+    db.update(schema.enrollments)
+      .set({ completedAt: enrollment.lastCompletedAt })
+      .where(eq(schema.enrollments.id, enrollment.enrollmentId))
+      .run();
+  }
+
+  console.log(`Marked ${completedEnrollments.length} enrollments complete.`);
 
   // ─── Quiz Attempts ───
 

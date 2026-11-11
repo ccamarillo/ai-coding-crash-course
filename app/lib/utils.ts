@@ -14,6 +14,11 @@ export function formatPrice(cents: number | null | undefined): string {
   return formatDollars(cents);
 }
 
+/** Format a 0–1 fraction as a whole percentage, e.g. 0.825 → "83%". */
+export function formatPercent(fraction: number): string {
+  return `${Math.round(fraction * 100)}%`;
+}
+
 /** Format an amount in cents as "$X.XX", including "$0.00" for zero. */
 export function formatDollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
