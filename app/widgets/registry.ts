@@ -10,6 +10,8 @@ import { quizScoresWidget } from "./quiz-scores";
 // holds what the grid and tiles need. Each widget's server-side data function
 // lives in registry.server.ts so the database never reaches the client bundle.
 
+export const GRID_COLUMNS = 12;
+
 export type WidgetSize = { w: number; h: number };
 
 export type WidgetTileProps<TData> = {

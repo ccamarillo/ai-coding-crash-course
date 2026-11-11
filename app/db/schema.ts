@@ -324,3 +324,28 @@ export const videoWatchEvents = sqliteTable("video_watch_events", {
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 });
+
+// One row per widget on an instructor's customized dashboard. No rows means
+// the instructor sees the registry's default layout. Positions are on a
+// 12-column grid; widget ids and size limits are enforced in
+// dashboardLayoutService against the widget registry.
+export const instructorDashboardWidgets = sqliteTable(
+  "instructor_dashboard_widgets",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id),
+    widgetId: text("widget_id").notNull(),
+    x: integer("x").notNull(),
+    y: integer("y").notNull(),
+    w: integer("w").notNull(),
+    h: integer("h").notNull(),
+  },
+  (table) => [
+    uniqueIndex("instructor_dashboard_widgets_user_widget_unique").on(
+      table.userId,
+      table.widgetId
+    ),
+  ]
+);

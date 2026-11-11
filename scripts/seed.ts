@@ -45,6 +45,7 @@ async function seed() {
 
   // Drop and recreate tables for a clean seed
   sqlite.exec(`
+    DROP TABLE IF EXISTS instructor_dashboard_widgets;
     DROP TABLE IF EXISTS comments;
     DROP TABLE IF EXISTS course_ratings;
     DROP TABLE IF EXISTS video_watch_events;
@@ -1950,6 +1951,41 @@ You've completed the Building REST APIs course. You now have the skills to build
     `Created 1 team with Bossy McBossface as admin, 1 team purchase, and ${seededCoupons.length} coupons (2 redeemed, 3 available).`
   );
 
+  // ─── Instructor Dashboard Layouts ───
+  // Marcus has customized his dashboard: sales across the top, completion
+  // rate removed. Sarah has no rows, so she sees the default layout.
+
+  db.insert(schema.instructorDashboardWidgets)
+    .values([
+      {
+        userId: instructor2.id,
+        widgetId: "gross-sales",
+        x: 0,
+        y: 0,
+        w: 12,
+        h: 2,
+      },
+      {
+        userId: instructor2.id,
+        widgetId: "quiz-scores",
+        x: 0,
+        y: 2,
+        w: 8,
+        h: 3,
+      },
+      {
+        userId: instructor2.id,
+        widgetId: "enrollments",
+        x: 8,
+        y: 2,
+        w: 4,
+        h: 3,
+      },
+    ])
+    .run();
+
+  console.log("Created a customized dashboard layout for Marcus.");
+
   console.log("\n✓ Seed complete!");
   console.log("  Users: 9 (1 admin, 2 instructors, 6 students)");
   console.log("  Categories: 5");
@@ -1962,6 +1998,7 @@ You've completed the Building REST APIs course. You now have the skills to build
   console.log("  Lesson comments: 15 (4 questions awaiting an answer)");
   console.log("  Purchases: 6 (5 individual + 1 team)");
   console.log("  Teams: 1 (with 5 coupons)");
+  console.log("  Dashboard layouts: 1 customized (Marcus)");
 }
 
 seed().catch(console.error);
