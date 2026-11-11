@@ -85,7 +85,7 @@ const markCompleteSchema = z.object({
 
 const bookmarkSchema = z.object({
   intent: z.literal("bookmark"),
-  bookmarked: z.enum(["true", "false"]),
+  bookmarked: z.enum(["true", "false"]).transform((v) => v === "true"),
 });
 
 const createCommentSchema = z.object({
@@ -441,7 +441,7 @@ export async function action({ params, request }: Route.ActionArgs) {
       throw data("Invalid bookmark request", { status: 400 });
     }
 
-    if (parsed.data.bookmarked === "true") {
+    if (parsed.data.bookmarked) {
       addBookmark(currentUserId, lessonId);
     } else {
       removeBookmark(currentUserId, lessonId);
@@ -833,11 +833,7 @@ function BookmarkToggle({
   return (
     <fetcher.Form method="post" className="mt-0.5 shrink-0">
       <input type="hidden" name="intent" value="bookmark" />
-      <input
-        type="hidden"
-        name="bookmarked"
-        value={isBookmarked ? "false" : "true"}
-      />
+      <input type="hidden" name="bookmarked" value={String(!isBookmarked)} />
       <Button
         type="submit"
         variant="ghost"

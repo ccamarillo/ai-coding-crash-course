@@ -46,11 +46,12 @@ describe("bookmarkService", () => {
 
     it("leaves a single bookmark when the same lesson is added twice", () => {
       addBookmark(base.user.id, lessonId);
-      addBookmark(base.user.id, lessonId);
+      expect(() => addBookmark(base.user.id, lessonId)).not.toThrow();
 
-      // One remove clears it, so only one bookmark was stored
-      removeBookmark(base.user.id, lessonId);
-      expect(isLessonBookmarked(base.user.id, lessonId)).toBe(false);
+      expect(isLessonBookmarked(base.user.id, lessonId)).toBe(true);
+      // No public read counts bookmarks yet, so count the rows directly
+      const rows = testDb.select().from(schema.lessonBookmarks).all();
+      expect(rows).toHaveLength(1);
     });
   });
 
