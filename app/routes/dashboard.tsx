@@ -4,6 +4,7 @@ import { getUserEnrolledCourses } from "~/services/enrollmentService";
 import { calculateProgress, getCompletedLessonCount, getTotalLessonCount, getNextIncompleteLesson } from "~/services/progressService";
 import { listSavedLessons, removeBookmark } from "~/services/bookmarkService";
 import { getCurrentUserId } from "~/lib/session";
+import { requireUserId } from "~/lib/access.server";
 import { Card, CardContent, CardFooter, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
@@ -73,10 +74,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  const currentUserId = await getCurrentUserId(request);
-  if (!currentUserId) {
-    throw data("You must be logged in", { status: 401 });
-  }
+  const currentUserId = await requireUserId(request);
 
   const formData = await request.formData();
   const parsed = parseFormData(formData, removeBookmarkSchema);

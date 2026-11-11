@@ -96,6 +96,8 @@ describe("bookmarkService", () => {
         .returning()
         .get().id;
 
+      // Archived, so the list is shown to include lessons the user may no
+      // longer be able to view.
       const otherCourse = testDb
         .insert(schema.courses)
         .values({
