@@ -150,6 +150,21 @@ export async function requireStaff(
 }
 
 /**
+ * Throws unless the user is an instructor. Admins are refused too — for
+ * instructor-only pages such as the instructor overview.
+ */
+export async function requireInstructor(request: Request) {
+  const userId = await requireUserId(request);
+  const user = getUserById(userId);
+
+  if (!user || user.role !== UserRole.Instructor) {
+    throw data("Only instructors can access this page.", { status: 403 });
+  }
+
+  return userId;
+}
+
+/**
  * Throws unless the user is an instructor or an admin, without tying them to a
  * particular course — for pages that span all of someone's courses.
  */

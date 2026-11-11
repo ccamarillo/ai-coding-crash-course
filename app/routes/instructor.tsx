@@ -2,19 +2,28 @@ import { Link } from "react-router";
 import type { Route } from "./+types/instructor";
 import { getCoursesByInstructor, getLessonCountForCourse } from "~/services/courseService";
 import { getEnrollmentCountForCourse } from "~/services/enrollmentService";
-import { getCurrentUserId } from "~/lib/session";
-import { getUserById } from "~/services/userService";
+import { requireInstructor } from "~/lib/access.server";
 import { Card, CardContent, CardFooter, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 import { AlertTriangle, BookOpen, GraduationCap, Plus, Users } from "lucide-react";
 import { CourseImage } from "~/components/course-image";
-import { data, isRouteErrorResponse } from "react-router";
-import { CourseStatus, UserRole } from "~/db/schema";
-import { WidgetDashboard } from "~/components/widget-dashboard";
+import {
+  data,
+  isRouteErrorResponse,
+  type ShouldRevalidateFunctionArgs,
+} from "react-router";
+import { CourseStatus } from "~/db/schema";
+import { z } from "zod";
+import {
+  WidgetDashboard,
+  type LayoutSubmission,
+} from "~/components/widget-dashboard";
 import { parseDashboardRange } from "~/lib/dashboard-range";
+import { parseJsonBody } from "~/lib/validation";
+import { getLayout, saveLayout } from "~/services/dashboardLayoutService";
 import { resolveCourseFilter } from "~/services/instructorAnalyticsService";
-import { DEFAULT_LAYOUT } from "~/widgets/registry";
+import { LAYOUT_CHANGES } from "~/widgets/layout";
 import { loadWidgetData } from "~/widgets/registry.server";
 
 export function meta() {
@@ -25,21 +34,7 @@ export function meta() {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const currentUserId = await getCurrentUserId(request);
-
-  if (!currentUserId) {
-    throw data("Select a user from the DevUI panel to view your courses.", {
-      status: 401,
-    });
-  }
-
-  const user = getUserById(currentUserId);
-
-  if (!user || user.role !== UserRole.Instructor) {
-    throw data("Only instructors can access this page.", {
-      status: 403,
-    });
-  }
+  const currentUserId = await requireInstructor(request);
 
   const instructorCourses = getCoursesByInstructor(currentUserId);
 
@@ -49,7 +44,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     currentUserId,
     url.searchParams.get("course")
   );
-  const layout = DEFAULT_LAYOUT;
+  const layout = getLayout(currentUserId);
 
   // Not awaited: each widget streams in and fails on its own.
   const widgetData = Object.fromEntries(
@@ -87,6 +82,68 @@ export async function loader({ request }: Route.LoaderArgs) {
       widgetData,
     },
   };
+}
+
+// Widget ids, positions and sizes are checked against the registry by
+// saveLayout; this only checks the request's shape.
+const layoutSubmissionSchema = z.object({
+  layout: z.array(
+    z.object({
+      widgetId: z.string(),
+      x: z.number(),
+      y: z.number(),
+      w: z.number(),
+      h: z.number(),
+    })
+  ),
+  change: z.enum(LAYOUT_CHANGES),
+});
+
+export async function action({ request }: Route.ActionArgs) {
+  const currentUserId = await requireInstructor(request);
+
+  const parsed = await parseJsonBody(request, layoutSubmissionSchema);
+  if (!parsed.success) {
+    return data({ ok: false, error: "That layout couldn't be read." }, { status: 400 });
+  }
+
+  try {
+    saveLayout(currentUserId, parsed.data.layout);
+  } catch (error) {
+    if (error instanceof Error) {
+      return data({ ok: false, error: error.message }, { status: 400 });
+    }
+    throw error;
+  }
+
+  return { ok: true };
+}
+
+// A save that fails in transit should revert the grid with a toast like a
+// rejected layout, not replace the page with the error boundary. A 401 or 403
+// still goes to the error boundary, which explains it properly.
+export async function clientAction({ serverAction }: Route.ClientActionArgs) {
+  try {
+    return await serverAction();
+  } catch (error) {
+    if (isRouteErrorResponse(error)) throw error;
+    return { ok: false, error: "Check your connection and try again." };
+  }
+}
+
+// Moving, resizing or removing a tile changes nothing the loader returns
+// beyond what the screen already shows, so skip reloading every widget's data.
+// Adding one needs its data loaded.
+export function shouldRevalidate({
+  json,
+  actionResult,
+  defaultShouldRevalidate,
+}: ShouldRevalidateFunctionArgs) {
+  const submission = json as LayoutSubmission | undefined;
+  if (submission?.change && submission.change !== "add" && actionResult?.ok) {
+    return false;
+  }
+  return defaultShouldRevalidate;
 }
 
 function statusBadge(status: string) {

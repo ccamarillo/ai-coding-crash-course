@@ -1,6 +1,21 @@
-import { Suspense, type CSSProperties } from "react";
-import { Await, useSearchParams } from "react-router";
-import { AlertTriangle } from "lucide-react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
+import {
+  Await,
+  useFetcher,
+  useRevalidator,
+  useSearchParams,
+} from "react-router";
+import { DropdownMenu } from "radix-ui";
+import { AlertTriangle, Check, Plus, Settings2, X } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Skeleton } from "~/components/ui/skeleton";
 import {
@@ -15,9 +30,30 @@ import {
   DEFAULT_DASHBOARD_RANGE,
   type DashboardRange,
 } from "~/lib/dashboard-range";
-import { widgets, type WidgetLayoutItem } from "~/widgets/registry";
+import {
+  getHiddenWidgetIds,
+  GRID_GAP_PX,
+  GRID_ROW_HEIGHT_PX,
+  inReadingOrder,
+  placeWidget,
+  type LayoutChange,
+} from "~/widgets/layout";
+import {
+  widgets,
+  type WidgetId,
+  type WidgetLayoutItem,
+} from "~/widgets/registry";
+
+// Customize mode only: keeps react-grid-layout out of the normal page bundle.
+const DashboardEditor = lazy(() => import("./dashboard-editor"));
 
 const ALL_COURSES = "all";
+
+/** What the layout action receives. `change` tells the route whether to reload widget data. */
+export type LayoutSubmission = {
+  layout: WidgetLayoutItem[];
+  change: LayoutChange;
+};
 
 type WidgetDashboardProps = {
   range: DashboardRange;
@@ -31,40 +67,207 @@ export function WidgetDashboard({
   range,
   courseId,
   courseOptions,
-  layout,
+  layout: serverLayout,
   widgetData,
 }: WidgetDashboardProps) {
-  // Reading order for the stacked single-column layout on narrow screens.
-  const ordered = [...layout].sort((a, b) => a.y - b.y || a.x - b.x);
+  const [customizing, setCustomizing] = useState(false);
+  const { layout, saveLayout } = useSavedLayout(serverLayout);
+
+  function renderTile(item: WidgetLayoutItem) {
+    return (
+      <WidgetTile item={item} data={widgetData[item.widgetId]} range={range} />
+    );
+  }
+
+  // The last tile can't be removed: an empty layout would read back as the default.
+  function renderEditableTile(item: WidgetLayoutItem) {
+    const remove = () =>
+      saveLayout(
+        layout.filter((i) => i.widgetId !== item.widgetId),
+        "remove"
+      );
+    return (
+      <WidgetTile
+        item={item}
+        data={widgetData[item.widgetId]}
+        range={range}
+        onRemove={layout.length > 1 ? remove : undefined}
+      />
+    );
+  }
+
+  const staticGrid = <StaticGrid layout={layout} renderTile={renderTile} />;
 
   return (
     <section className="mb-10">
-      <DashboardFilters
-        range={range}
-        courseId={courseId}
-        courseOptions={courseOptions}
-      />
-      <div className="grid grid-cols-1 gap-4 md:auto-rows-[5.5rem] md:grid-cols-12">
-        {ordered.map((item) => (
-          <div
-            key={item.widgetId}
-            className="md:[grid-column:var(--grid-column)] md:[grid-row:var(--grid-row)]"
-            style={
-              {
-                "--grid-column": `${item.x + 1} / span ${item.w}`,
-                "--grid-row": `${item.y + 1} / span ${item.h}`,
-              } as CSSProperties
-            }
-          >
-            <WidgetTile
-              item={item}
-              data={widgetData[item.widgetId]}
-              range={range}
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <DashboardFilters
+          range={range}
+          courseId={courseId}
+          courseOptions={courseOptions}
+        />
+        <div className="ml-auto hidden items-center gap-2 md:flex">
+          {customizing && (
+            <AddWidgetMenu
+              hiddenWidgetIds={getHiddenWidgetIds(layout)}
+              onAdd={(widgetId) =>
+                saveLayout([...layout, placeWidget(layout, widgetId)], "add")
+              }
             />
-          </div>
-        ))}
+          )}
+          <Button
+            variant={customizing ? "default" : "outline"}
+            onClick={() => setCustomizing((c) => !c)}
+          >
+            {customizing ? (
+              <Check className="mr-2 size-4" />
+            ) : (
+              <Settings2 className="mr-2 size-4" />
+            )}
+            {customizing ? "Done" : "Customize"}
+          </Button>
+        </div>
       </div>
+
+      {customizing ? (
+        <>
+          {/* Customize is desktop-only; narrow screens keep the stacked view. */}
+          <div className="md:hidden">{staticGrid}</div>
+          <div className="hidden md:block">
+            <Suspense fallback={staticGrid}>
+              <DashboardEditor
+                layout={layout}
+                onLayoutChange={saveLayout}
+                renderTile={renderEditableTile}
+              />
+            </Suspense>
+          </div>
+        </>
+      ) : (
+        staticGrid
+      )}
     </section>
+  );
+}
+
+/**
+ * The layout shown on screen, saved through the route action. Changes show
+ * immediately; a failed save restores the last saved layout with a toast.
+ */
+function useSavedLayout(serverLayout: WidgetLayoutItem[]) {
+  const fetcher = useFetcher<{ ok: boolean; error?: string }>();
+  const revalidator = useRevalidator();
+  const [layout, setLayout] = useState(serverLayout);
+  const savedLayout = useRef(serverLayout);
+  const pendingLayout = useRef<WidgetLayoutItem[] | null>(null);
+
+  // A new layout from the loader (reload, filter change) is the saved one.
+  useEffect(() => {
+    setLayout(serverLayout);
+    savedLayout.current = serverLayout;
+  }, [serverLayout]);
+
+  useEffect(() => {
+    if (fetcher.state !== "idle" || !fetcher.data || !pendingLayout.current) {
+      return;
+    }
+    if (fetcher.data.ok) {
+      savedLayout.current = pendingLayout.current;
+    } else {
+      setLayout(savedLayout.current);
+      toast.error(
+        `Your dashboard change wasn't saved. ${fetcher.data.error ?? ""}`.trim()
+      );
+      // A quick earlier edit may have been saved even though its request was
+      // cancelled by this one, so reload the layout the server actually has.
+      revalidator.revalidate();
+    }
+    pendingLayout.current = null;
+  }, [fetcher.state, fetcher.data]);
+
+  function saveLayout(next: WidgetLayoutItem[], change: LayoutChange) {
+    setLayout(next);
+    pendingLayout.current = next;
+    const submission: LayoutSubmission = { layout: next, change };
+    fetcher.submit(submission, { method: "post", encType: "application/json" });
+  }
+
+  return { layout, saveLayout };
+}
+
+function StaticGrid({
+  layout,
+  renderTile,
+}: {
+  layout: WidgetLayoutItem[];
+  renderTile: (item: WidgetLayoutItem) => React.ReactNode;
+}) {
+  return (
+    <div
+      className="grid grid-cols-1 gap-(--grid-gap) md:auto-rows-(--grid-row-height) md:grid-cols-12"
+      style={
+        {
+          "--grid-gap": `${GRID_GAP_PX}px`,
+          "--grid-row-height": `${GRID_ROW_HEIGHT_PX}px`,
+        } as CSSProperties
+      }
+    >
+      {inReadingOrder(layout).map((item) => (
+        <div
+          key={item.widgetId}
+          className="md:[grid-column:var(--grid-column)] md:[grid-row:var(--grid-row)]"
+          style={
+            {
+              "--grid-column": `${item.x + 1} / span ${item.w}`,
+              "--grid-row": `${item.y + 1} / span ${item.h}`,
+            } as CSSProperties
+          }
+        >
+          {renderTile(item)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AddWidgetMenu({
+  hiddenWidgetIds,
+  onAdd,
+}: {
+  hiddenWidgetIds: WidgetId[];
+  onAdd: (widgetId: WidgetId) => void;
+}) {
+  if (hiddenWidgetIds.length === 0) return null;
+
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <Button variant="outline">
+          <Plus className="mr-2 size-4" />
+          Add widget
+        </Button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="end"
+          sideOffset={4}
+          className="z-50 min-w-56 rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+        >
+          {hiddenWidgetIds.map((id) => (
+            <DropdownMenu.Item
+              key={id}
+              onSelect={() => onAdd(id)}
+              className="cursor-default rounded-sm px-2 py-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground"
+            >
+              <div className="font-medium">{widgets[id].title}</div>
+              <div className="text-xs text-muted-foreground">
+                {widgets[id].description}
+              </div>
+            </DropdownMenu.Item>
+          ))}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   );
 }
 
@@ -87,7 +290,7 @@ function DashboardFilters({
   }
 
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-3">
+    <>
       <Select
         value={range}
         onValueChange={(value) =>
@@ -121,7 +324,7 @@ function DashboardFilters({
           ))}
         </SelectContent>
       </Select>
-    </div>
+    </>
   );
 }
 
@@ -129,29 +332,50 @@ function WidgetTile({
   item,
   data,
   range,
+  onRemove,
 }: {
   item: WidgetLayoutItem;
+  // Undefined for a just-added widget until the loader fetches its data.
   data: Promise<unknown> | undefined;
   range: DashboardRange;
+  onRemove?: () => void;
 }) {
   const widget = widgets[item.widgetId];
   const size = { w: item.w, h: item.h };
 
   return (
     <Card className="h-full gap-3 overflow-hidden py-4">
-      <CardHeader className="px-4">
+      <CardHeader className="flex flex-row items-center justify-between px-4">
         <CardTitle className="text-sm font-medium text-muted-foreground">
           {widget.title}
         </CardTitle>
+        {onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            aria-label={`Remove ${widget.title}`}
+            className="dashboard-no-drag -my-1 rounded-sm p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <X className="size-4" />
+          </button>
+        )}
       </CardHeader>
       <CardContent className="min-h-0 flex-1 px-4">
-        <Suspense fallback={<TileSkeleton />}>
-          <Await resolve={data} errorElement={<TileError />}>
-            {(resolved) => (
-              <widget.Tile data={resolved as never} size={size} range={range} />
-            )}
-          </Await>
-        </Suspense>
+        {data === undefined ? (
+          <TileSkeleton />
+        ) : (
+          <Suspense fallback={<TileSkeleton />}>
+            <Await resolve={data} errorElement={<TileError />}>
+              {(resolved) => (
+                <widget.Tile
+                  data={resolved as never}
+                  size={size}
+                  range={range}
+                />
+              )}
+            </Await>
+          </Suspense>
+        )}
       </CardContent>
     </Card>
   );
