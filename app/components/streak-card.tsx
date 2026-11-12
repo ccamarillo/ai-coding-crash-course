@@ -37,6 +37,26 @@ function StreakHint({ streak, className }: { streak: Streak; className?: string 
   }
 }
 
+function StreakStat({
+  icon,
+  value,
+  label,
+}: {
+  icon: React.ReactNode;
+  value: number;
+  label: string;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      {icon}
+      <div>
+        <div className="text-2xl font-bold leading-none">{days(value)}</div>
+        <div className="text-sm text-muted-foreground">{label}</div>
+      </div>
+    </div>
+  );
+}
+
 // Full-width card: current and longest Streak side by side, hint on the right.
 export function StreakCard({ streak }: { streak: Streak }) {
   return (
@@ -49,25 +69,23 @@ export function StreakCard({ streak }: { streak: Streak }) {
           </div>
         ) : (
           <>
-            <div className="flex items-center gap-3">
-              <Flame
-                className={cn(
-                  "size-8",
-                  streak.current > 0 ? "text-orange-500" : "text-muted-foreground/40"
-                )}
-              />
-              <div>
-                <div className="text-2xl font-bold leading-none">{days(streak.current)}</div>
-                <div className="text-sm text-muted-foreground">Current Streak</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <Trophy className="size-8 text-yellow-500" />
-              <div>
-                <div className="text-2xl font-bold leading-none">{days(streak.longest)}</div>
-                <div className="text-sm text-muted-foreground">Longest Streak</div>
-              </div>
-            </div>
+            <StreakStat
+              icon={
+                <Flame
+                  className={cn(
+                    "size-8",
+                    streak.current > 0 ? "text-orange-500" : "text-muted-foreground/40"
+                  )}
+                />
+              }
+              value={streak.current}
+              label="Current Streak"
+            />
+            <StreakStat
+              icon={<Trophy className="size-8 text-yellow-500" />}
+              value={streak.longest}
+              label="Longest Streak"
+            />
             <StreakHint streak={streak} className="sm:ml-auto" />
           </>
         )}
