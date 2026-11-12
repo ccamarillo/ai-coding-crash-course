@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import type { Route } from "./+types/dashboard";
 import { getUserEnrolledCourses } from "~/services/enrollmentService";
 import { calculateProgress, getCompletedLessonCount, getTotalLessonCount, getNextIncompleteLesson } from "~/services/progressService";
@@ -9,6 +9,18 @@ import { Skeleton } from "~/components/ui/skeleton";
 import { AlertTriangle, BookOpen, CheckCircle2, GraduationCap, PlayCircle } from "lucide-react";
 import { CourseImage } from "~/components/course-image";
 import { data, isRouteErrorResponse } from "react-router";
+// PROTOTYPE (cadence-a4b.1.3): streak card variants, throwaway.
+import {
+  STREAK_STATES,
+  STREAK_VARIANTS,
+  STUB,
+  StreakBanner,
+  StreakCompact,
+  StreakRail,
+  type StreakState,
+  type StreakVariant,
+} from "~/components/streak-card.prototype";
+import { PrototypeSwitcher } from "~/components/prototype-switcher";
 
 export function meta() {
   return [
@@ -104,6 +116,9 @@ export function HydrateFallback() {
 export default function Dashboard({ loaderData }: Route.ComponentProps) {
   const { inProgressCourses, completedCourses } = loaderData;
   const totalCourses = inProgressCourses.length + completedCourses.length;
+  const [params] = useSearchParams();
+  const variant = (params.get("variant") ?? "A") as StreakVariant;
+  const streak = STUB[(params.get("streak") ?? "today") as StreakState] ?? STUB.today;
 
   return (
     <div className="mx-auto max-w-7xl p-6 lg:p-8">
@@ -116,12 +131,20 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
         <span className="text-foreground">Dashboard</span>
       </nav>
 
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold">My Dashboard</h1>
-        <p className="mt-1 text-muted-foreground">
-          Track your learning progress
-        </p>
+      <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold">My Dashboard</h1>
+          <p className="mt-1 text-muted-foreground">
+            Track your learning progress
+          </p>
+        </div>
+        {variant === "B" && <StreakCompact s={streak} />}
       </div>
+
+      {variant === "A" && <StreakBanner s={streak} />}
+
+      <div className={variant === "C" ? "grid gap-8 lg:grid-cols-[1fr_18rem]" : undefined}>
+      <div className="min-w-0">
 
       {totalCourses === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -259,6 +282,15 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
           )}
         </div>
       )}
+      </div>
+      {variant === "C" && (
+        <aside className="lg:order-none order-first">
+          <StreakRail s={streak} />
+        </aside>
+      )}
+      </div>
+
+      <PrototypeSwitcher variants={STREAK_VARIANTS} states={STREAK_STATES} />
     </div>
   );
 }
