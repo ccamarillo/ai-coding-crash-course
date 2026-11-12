@@ -1,14 +1,16 @@
 import { Link } from "react-router";
 import type { Route } from "./+types/dashboard";
 import { getUserEnrolledCourses } from "~/services/enrollmentService";
-import { calculateProgress, getCompletedLessonCount, getTotalLessonCount, getNextIncompleteLesson } from "~/services/progressService";
+import { calculateProgress, getCompletedLessonCount, getTotalLessonCount, getNextIncompleteLesson, getStreak } from "~/services/progressService";
 import { getCurrentUserId } from "~/lib/session";
+import { resolveTimeZone } from "~/lib/timezone.server";
 import { Card, CardContent, CardFooter, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 import { AlertTriangle, BookOpen, CheckCircle2, GraduationCap, PlayCircle } from "lucide-react";
 import { CourseImage } from "~/components/course-image";
 import { data, isRouteErrorResponse } from "react-router";
+import { StreakCard } from "~/components/streak-card";
 
 export function meta() {
   return [
@@ -59,7 +61,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   const completedCourses = coursesWithProgress.filter((c) => c.isCompleted);
   const inProgressCourses = coursesWithProgress.filter((c) => !c.isCompleted);
 
-  return { inProgressCourses, completedCourses };
+  const streak = getStreak(currentUserId, resolveTimeZone(request), new Date());
+
+  return { inProgressCourses, completedCourses, streak };
 }
 
 function DashboardCardSkeleton() {
@@ -102,7 +106,7 @@ export function HydrateFallback() {
 }
 
 export default function Dashboard({ loaderData }: Route.ComponentProps) {
-  const { inProgressCourses, completedCourses } = loaderData;
+  const { inProgressCourses, completedCourses, streak } = loaderData;
   const totalCourses = inProgressCourses.length + completedCourses.length;
 
   return (
@@ -122,6 +126,8 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
           Track your learning progress
         </p>
       </div>
+
+      <StreakCard streak={streak} />
 
       {totalCourses === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">

@@ -22,6 +22,20 @@ const darkModeScript = `
 })();
 `;
 
+// Writes the browser's IANA zone to cadence_tz (read by resolveTimeZone) only when it changed.
+const timeZoneScript = `
+(function() {
+  try {
+    var tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (!tz) return;
+    var value = encodeURIComponent(tz);
+    var match = document.cookie.match(/(?:^|;\\s*)cadence_tz=([^;]*)/);
+    if (match && match[1] === value) return;
+    document.cookie = 'cadence_tz=' + value + '; path=/; max-age=31536000; SameSite=Lax';
+  } catch (e) {}
+})();
+`;
+
 export const links: Route.LinksFunction = () => [
   { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -43,6 +57,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <script dangerouslySetInnerHTML={{ __html: darkModeScript }} />
+        <script dangerouslySetInnerHTML={{ __html: timeZoneScript }} />
         <Meta />
         <Links />
       </head>

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createTestDb, seedBaseData } from "~/test/setup";
 import * as schema from "~/db/schema";
 
@@ -23,6 +23,7 @@ import {
   getTotalLessonCount,
   isLessonCompleted,
   getNextIncompleteLesson,
+  getStreak,
 } from "./progressService";
 
 // Helper to create a module with lessons in the test db
@@ -68,6 +69,17 @@ describe("progressService", () => {
   });
 
   describe("markLessonComplete", () => {
+    const now = new Date("2026-11-12T09:30:00.000Z");
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(now);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
     it("marks a lesson as completed with a new progress record", () => {
       const { lessons } = createModuleWithLessons(base.course.id, "Module 1", 1, 1);
 
@@ -77,27 +89,39 @@ describe("progressService", () => {
       expect(progress.userId).toBe(base.user.id);
       expect(progress.lessonId).toBe(lessons[0].id);
       expect(progress.status).toBe(schema.LessonProgressStatus.Completed);
-      expect(progress.completedAt).toBeDefined();
-      expect(progress.completedAt).not.toBeNull();
+      expect(progress.completedAt).toBe(now.toISOString());
     });
 
-    it("updates an existing in-progress record to completed", () => {
+    it("updates an existing in-progress record to completed, stamped with now", () => {
       const { lessons } = createModuleWithLessons(base.course.id, "Module 1", 1, 1);
 
       markLessonInProgress(base.user.id, lessons[0].id);
       const progress = markLessonComplete(base.user.id, lessons[0].id);
 
       expect(progress.status).toBe(schema.LessonProgressStatus.Completed);
-      expect(progress.completedAt).not.toBeNull();
+      expect(progress.completedAt).toBe(now.toISOString());
     });
 
-    it("is idempotent — completing an already completed lesson still returns completed", () => {
+    it("keeps the original completedAt when completing an already completed lesson", () => {
       const { lessons } = createModuleWithLessons(base.course.id, "Module 1", 1, 1);
+      const firstCompletedAt = "2026-11-01T18:00:00.000Z";
+      testDb
+        .insert(schema.lessonProgress)
+        .values({
+          userId: base.user.id,
+          lessonId: lessons[0].id,
+          status: schema.LessonProgressStatus.Completed,
+          completedAt: firstCompletedAt,
+        })
+        .run();
 
-      markLessonComplete(base.user.id, lessons[0].id);
       const progress = markLessonComplete(base.user.id, lessons[0].id);
 
       expect(progress.status).toBe(schema.LessonProgressStatus.Completed);
+      expect(progress.completedAt).toBe(firstCompletedAt);
+      expect(getLessonProgress(base.user.id, lessons[0].id)?.completedAt).toBe(
+        firstCompletedAt
+      );
     });
   });
 
@@ -484,6 +508,219 @@ describe("progressService", () => {
       const next = getNextIncompleteLesson(base.user.id, base.course.id);
       expect(next).toBeDefined();
       expect(next!.id).toBe(lessons[0].id);
+    });
+  });
+
+  describe("getStreak", () => {
+    // Inserts one completed lesson progress row per instant.
+    function completeAt(...instants: string[]) {
+      const { lessons } = createModuleWithLessons(
+        base.course.id,
+        "Streak Module",
+        1,
+        instants.length
+      );
+      instants.forEach((completedAt, i) => {
+        testDb
+          .insert(schema.lessonProgress)
+          .values({
+            userId: base.user.id,
+            lessonId: lessons[i].id,
+            status: schema.LessonProgressStatus.Completed,
+            completedAt,
+          })
+          .run();
+      });
+    }
+
+    const now = new Date("2026-11-12T15:00:00.000Z");
+
+    it("is empty when the user has no completions", () => {
+      expect(getStreak(base.user.id, "UTC", now)).toEqual({
+        current: 0,
+        longest: 0,
+        state: "empty",
+      });
+    });
+
+    it("ignores in-progress lessons and other users' completions", () => {
+      const { lessons } = createModuleWithLessons(base.course.id, "Module 1", 1, 2);
+      markLessonInProgress(base.user.id, lessons[0].id);
+      testDb
+        .insert(schema.lessonProgress)
+        .values({
+          userId: base.instructor.id,
+          lessonId: lessons[1].id,
+          status: schema.LessonProgressStatus.Completed,
+          completedAt: "2026-11-12T10:00:00.000Z",
+        })
+        .run();
+
+      expect(getStreak(base.user.id, "UTC", now).state).toBe("empty");
+    });
+
+    it("counts consecutive Study days ending today", () => {
+      completeAt(
+        "2026-11-10T09:00:00.000Z",
+        "2026-11-11T09:00:00.000Z",
+        "2026-11-12T09:00:00.000Z"
+      );
+
+      expect(getStreak(base.user.id, "UTC", now)).toEqual({
+        current: 3,
+        longest: 3,
+        state: "today",
+      });
+    });
+
+    it("counts several completions on one day once", () => {
+      completeAt(
+        "2026-11-11T01:00:00.000Z",
+        "2026-11-11T12:00:00.000Z",
+        "2026-11-11T23:59:59.000Z",
+        "2026-11-12T08:00:00.000Z",
+        "2026-11-12T09:00:00.000Z"
+      );
+
+      expect(getStreak(base.user.id, "UTC", now)).toEqual({
+        current: 2,
+        longest: 2,
+        state: "today",
+      });
+    });
+
+    it("keeps a Streak ending yesterday alive and marks it at-risk", () => {
+      completeAt("2026-11-10T09:00:00.000Z", "2026-11-11T09:00:00.000Z");
+
+      expect(getStreak(base.user.id, "UTC", now)).toEqual({
+        current: 2,
+        longest: 2,
+        state: "at-risk",
+      });
+    });
+
+    it("breaks the Streak when neither today nor yesterday is a Study day", () => {
+      completeAt("2026-11-09T09:00:00.000Z", "2026-11-10T09:00:00.000Z");
+
+      expect(getStreak(base.user.id, "UTC", now)).toEqual({
+        current: 0,
+        longest: 2,
+        state: "broken",
+      });
+    });
+
+    it("ignores completions dated after today", () => {
+      completeAt("2026-11-11T09:00:00.000Z", "2026-11-13T09:00:00.000Z");
+
+      expect(getStreak(base.user.id, "UTC", now)).toEqual({
+        current: 1,
+        longest: 1,
+        state: "at-risk",
+      });
+    });
+
+    it("reports the longest Streak separately from the current one", () => {
+      completeAt(
+        "2026-10-01T09:00:00.000Z",
+        "2026-10-02T09:00:00.000Z",
+        "2026-10-03T09:00:00.000Z",
+        "2026-10-04T09:00:00.000Z",
+        "2026-11-11T09:00:00.000Z",
+        "2026-11-12T09:00:00.000Z"
+      );
+
+      expect(getStreak(base.user.id, "UTC", now)).toEqual({
+        current: 2,
+        longest: 4,
+        state: "today",
+      });
+    });
+
+    it("starts a new Streak after a one-day gap", () => {
+      completeAt(
+        "2026-11-08T09:00:00.000Z",
+        "2026-11-09T09:00:00.000Z",
+        "2026-11-11T09:00:00.000Z",
+        "2026-11-12T09:00:00.000Z"
+      );
+
+      expect(getStreak(base.user.id, "UTC", now)).toMatchObject({
+        current: 2,
+        longest: 2,
+      });
+    });
+
+    it("buckets completions into the user's local days", () => {
+      // 2026-11-12T03:00Z is still 2026-11-11 in New York (22:00 EST).
+      completeAt("2026-11-12T03:00:00.000Z");
+
+      expect(getStreak(base.user.id, "UTC", now)).toMatchObject({
+        current: 1,
+        state: "today",
+      });
+      expect(getStreak(base.user.id, "America/New_York", now)).toMatchObject({
+        current: 1,
+        state: "at-risk",
+      });
+    });
+
+    it("buckets completions with half-hour offsets (Asia/Kolkata)", () => {
+      // 2026-11-11T19:00Z is 2026-11-12 00:30 IST.
+      completeAt("2026-11-11T19:00:00.000Z");
+      const kolkataNow = new Date("2026-11-12T05:00:00.000Z");
+
+      expect(getStreak(base.user.id, "UTC", kolkataNow).state).toBe("at-risk");
+      expect(getStreak(base.user.id, "Asia/Kolkata", kolkataNow).state).toBe("today");
+    });
+
+    it("finds yesterday correctly on the New York spring-forward day", () => {
+      // 2026-03-08 is 23 hours long in New York; now is 2026-03-09 00:30 EDT.
+      completeAt("2026-03-08T05:30:00.000Z"); // 2026-03-08 00:30 EST
+      const springNow = new Date("2026-03-09T04:30:00.000Z");
+
+      expect(getStreak(base.user.id, "America/New_York", springNow)).toEqual({
+        current: 1,
+        longest: 1,
+        state: "at-risk",
+      });
+    });
+
+    it("finds yesterday correctly on the New York fall-back day", () => {
+      // 2026-11-01 is 25 hours long in New York; now is 2026-11-01 23:30 EST,
+      // where now − 24h would still land on 2026-11-01.
+      completeAt("2026-10-31T15:00:00.000Z"); // 2026-10-31 11:00 EDT
+      const fallNow = new Date("2026-11-02T04:30:00.000Z");
+
+      expect(getStreak(base.user.id, "America/New_York", fallNow)).toEqual({
+        current: 1,
+        longest: 1,
+        state: "at-risk",
+      });
+    });
+
+    it("throws on an unparseable completedAt", () => {
+      completeAt("not a date");
+
+      expect(() => getStreak(base.user.id, "UTC", now)).toThrow();
+    });
+
+    it("counts only the first completion of a lesson", () => {
+      const { lessons } = createModuleWithLessons(base.course.id, "Module 1", 1, 1);
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        vi.setSystemTime(new Date("2026-11-09T09:00:00.000Z"));
+        markLessonComplete(base.user.id, lessons[0].id);
+        vi.setSystemTime(new Date("2026-11-12T09:00:00.000Z"));
+        markLessonComplete(base.user.id, lessons[0].id);
+      } finally {
+        vi.useRealTimers();
+      }
+
+      expect(getStreak(base.user.id, "UTC", now)).toEqual({
+        current: 0,
+        longest: 1,
+        state: "broken",
+      });
     });
   });
 });
