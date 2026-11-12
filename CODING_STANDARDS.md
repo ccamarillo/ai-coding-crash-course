@@ -4,17 +4,17 @@ House rules for judgement calls. Where a rule here covers a case, it settles it:
 
 ## Duplicated JSX blocks in one component
 
-Extract a local component in the same change that introduces the duplication, and give it a name for what it renders.
+Extract a local component in the same change; the duplication is fixed now, not deferred to a later review.
 
-**Why:** the streak card's Flame and Trophy stat blocks were flagged, deferred as a judgement call, then extracted as `StreakStat` in the final review anyway — deferring only moved the work later.
+**Why:** the streak card's Flame and Trophy stat blocks were flagged, deferred, then extracted as `StreakStat` in the final review anyway.
 
 ## Time-dependent services take `now`
 
-A service whose result depends on the current time takes `now: Date` as a parameter, and likewise takes any clock or time zone it depends on. Callers pass `new Date()`.
+A service whose result depends on the current time takes `now: Date` as a parameter, and likewise any clock or time zone it depends on. Callers pass `new Date()`.
 
-This applies to new and changed code only. Existing services that call `new Date()` internally need no retrofit; leave untouched code as it is.
+Applies to new and changed code only; untouched services that call `new Date()` internally stay as they are.
 
-**Why:** the streak work injected `now: Date` and a reviewer flagged it as departing from house idiom with no written rule to settle it — this is the idiom, and it keeps time-dependent logic testable without mocking the clock.
+**Why:** a reviewer flagged the streak service's injected `now: Date` as departing from house idiom, with no written rule to settle it; this is the idiom.
 
 ## Strings shared by client and server code
 
@@ -24,6 +24,6 @@ A string both client and server code depend on (cookie names, header names) is d
 
 ## Domain names
 
-Name domain concepts with the domain glossary's terms (`GLOSSARY.md`, when present). Helpers that operate on any instant, not just a domain concept, get neutral names.
+Name domain concepts with the domain glossary's terms (`GLOSSARY.md`, when present). Helpers that operate on any instant get neutral names that describe the computation, not a domain concept.
 
-**Why:** `toStudyDay` was renamed to `toLocalEpochDay` because it converts any instant, not only a study day; glossary terms belong on the code that models the domain.
+**Why:** `toStudyDay` was renamed to `toLocalEpochDay` because it converts any instant, not only a study day.
