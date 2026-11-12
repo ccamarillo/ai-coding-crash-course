@@ -2,6 +2,8 @@
 
 House rules for judgement calls. Where a rule here covers a case, it settles it: reviewers cite the rule instead of leaving the call to the implementer.
 
+Each **Why** cites the retro on PR #22 ("Lesson completion streaks"); the code it names lives on that branch.
+
 ## Duplicated JSX blocks in one component
 
 Extract a local component in the same change; the duplication is fixed now, not deferred to a later review.
@@ -12,7 +14,7 @@ Extract a local component in the same change; the duplication is fixed now, not 
 
 A service whose result depends on the current time takes `now: Date` as a parameter, and likewise any clock or time zone it depends on. Callers pass `new Date()`.
 
-Applies to new and changed code only; untouched services that call `new Date()` internally stay as they are.
+Applies to new and changed code only; untouched services that call `new Date()` internally stay as they are. This covers clocks and zones only: services still use the shared `db` instance directly.
 
 **Why:** a reviewer flagged the streak service's injected `now: Date` as departing from house idiom, with no written rule to settle it; this is the idiom.
 
