@@ -609,6 +609,16 @@ describe("progressService", () => {
       });
     });
 
+    it("ignores completions dated after today", () => {
+      completeAt("2026-11-11T09:00:00.000Z", "2026-11-13T09:00:00.000Z");
+
+      expect(getStreak(base.user.id, "UTC", now)).toEqual({
+        current: 1,
+        longest: 1,
+        state: "at-risk",
+      });
+    });
+
     it("reports the longest Streak separately from the current one", () => {
       completeAt(
         "2026-10-01T09:00:00.000Z",

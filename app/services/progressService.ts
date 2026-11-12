@@ -344,11 +344,15 @@ export function getStreak(userId: number, timeZone: string, now: Date): Streak {
     )
     .all();
 
-  if (rows.length === 0) return { current: 0, longest: 0, state: "empty" };
-
+  const today = toLocalEpochDay(now, timeZone);
+  // Days after today (clock skew, bad data) aren't Study days yet.
   const studyDays = [
     ...new Set(rows.map((r) => toLocalEpochDay(new Date(r.completedAt!), timeZone))),
-  ].sort((a, b) => a - b);
+  ]
+    .filter((day) => day <= today)
+    .sort((a, b) => a - b);
+
+  if (studyDays.length === 0) return { current: 0, longest: 0, state: "empty" };
 
   let longest = 0;
   let run = 0;
@@ -358,10 +362,9 @@ export function getStreak(userId: number, timeZone: string, now: Date): Streak {
   }
 
   // `run` is now the Streak ending on the latest Study day.
-  const today = toLocalEpochDay(now, timeZone);
   const latest = studyDays[studyDays.length - 1];
 
-  if (latest >= today) return { current: run, longest, state: "today" };
+  if (latest === today) return { current: run, longest, state: "today" };
   if (latest === today - 1) return { current: run, longest, state: "at-risk" };
   return { current: 0, longest, state: "broken" };
 }
