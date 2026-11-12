@@ -1,4 +1,4 @@
-import { eq, and, or, sql, desc } from "drizzle-orm";
+import { eq, and, or, sql, desc, isNotNull } from "drizzle-orm";
 import { db } from "~/db";
 import {
   lessonProgress,
@@ -282,4 +282,86 @@ export function getRecentlyProgressedCourses(
     .orderBy(desc(sql`max(${lessonProgress.id})`))
     .limit(limit)
     .all();
+}
+
+// ─── Streaks ───
+// A Study day is a calendar day, in the user's time zone, with at least one first lesson
+// completion. A Streak is a run of consecutive Study days. Days are bucketed in JS so the
+// (untrusted) time zone never reaches SQL.
+
+export type StreakState = "today" | "at-risk" | "broken" | "empty";
+
+export type Streak = {
+  current: number;
+  longest: number;
+  state: StreakState;
+};
+
+const DAY_MS = 86_400_000;
+
+// Keyed by resolved zone IDs, so the map stays bounded.
+const studyDayFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function studyDayFormatter(timeZone: string) {
+  let formatter = studyDayFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      calendar: "gregory",
+      numberingSystem: "latn",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    studyDayFormatters.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
+// UTC instant → epoch day number of its local calendar date in timeZone.
+// Throws RangeError on an unparseable instant.
+function toStudyDay(instant: Date, timeZone: string): number {
+  const parts = studyDayFormatter(timeZone).formatToParts(instant);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((p) => p.type === type)!.value);
+  return Date.UTC(part("year"), part("month") - 1, part("day")) / DAY_MS;
+}
+
+/**
+ * `timeZone` must already be resolved (see `resolveTimeZone`). Days are compared as
+ * epoch day numbers, never as now − 24h, so DST change days don't shift "yesterday".
+ */
+export function getStreak(userId: number, timeZone: string, now: Date): Streak {
+  const rows = db
+    .select({ completedAt: lessonProgress.completedAt })
+    .from(lessonProgress)
+    .where(
+      and(
+        eq(lessonProgress.userId, userId),
+        eq(lessonProgress.status, LessonProgressStatus.Completed),
+        isNotNull(lessonProgress.completedAt)
+      )
+    )
+    .all();
+
+  if (rows.length === 0) return { current: 0, longest: 0, state: "empty" };
+
+  const studyDays = [
+    ...new Set(rows.map((r) => toStudyDay(new Date(r.completedAt!), timeZone))),
+  ].sort((a, b) => a - b);
+
+  let longest = 0;
+  let run = 0;
+  for (let i = 0; i < studyDays.length; i++) {
+    run = i > 0 && studyDays[i] - studyDays[i - 1] === 1 ? run + 1 : 1;
+    longest = Math.max(longest, run);
+  }
+
+  // `run` is now the Streak ending on the latest Study day.
+  const today = toStudyDay(now, timeZone);
+  const latest = studyDays[studyDays.length - 1];
+
+  if (latest >= today) return { current: run, longest, state: "today" };
+  if (latest === today - 1) return { current: run, longest, state: "at-risk" };
+  return { current: 0, longest, state: "broken" };
 }
