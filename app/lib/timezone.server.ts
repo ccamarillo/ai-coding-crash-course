@@ -3,7 +3,7 @@
 // The value is untrusted: validate it with Intl and fall back to "UTC". Never throws.
 // Intl.supportedValuesOf("timeZone") is deliberately not used — it omits UTC, Etc/* and aliases.
 
-export const TIME_ZONE_COOKIE = "cadence_tz";
+const TIME_ZONE_COOKIE = "cadence_tz";
 
 const MAX_TIME_ZONE_LENGTH = 64;
 
