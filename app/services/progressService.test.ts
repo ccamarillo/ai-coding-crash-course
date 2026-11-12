@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createTestDb, seedBaseData } from "~/test/setup";
 import * as schema from "~/db/schema";
 
@@ -68,6 +68,17 @@ describe("progressService", () => {
   });
 
   describe("markLessonComplete", () => {
+    const now = new Date("2026-11-12T09:30:00.000Z");
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(now);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
     it("marks a lesson as completed with a new progress record", () => {
       const { lessons } = createModuleWithLessons(base.course.id, "Module 1", 1, 1);
 
@@ -77,27 +88,39 @@ describe("progressService", () => {
       expect(progress.userId).toBe(base.user.id);
       expect(progress.lessonId).toBe(lessons[0].id);
       expect(progress.status).toBe(schema.LessonProgressStatus.Completed);
-      expect(progress.completedAt).toBeDefined();
-      expect(progress.completedAt).not.toBeNull();
+      expect(progress.completedAt).toBe(now.toISOString());
     });
 
-    it("updates an existing in-progress record to completed", () => {
+    it("updates an existing in-progress record to completed, stamped with now", () => {
       const { lessons } = createModuleWithLessons(base.course.id, "Module 1", 1, 1);
 
       markLessonInProgress(base.user.id, lessons[0].id);
       const progress = markLessonComplete(base.user.id, lessons[0].id);
 
       expect(progress.status).toBe(schema.LessonProgressStatus.Completed);
-      expect(progress.completedAt).not.toBeNull();
+      expect(progress.completedAt).toBe(now.toISOString());
     });
 
-    it("is idempotent — completing an already completed lesson still returns completed", () => {
+    it("keeps the original completedAt when completing an already completed lesson", () => {
       const { lessons } = createModuleWithLessons(base.course.id, "Module 1", 1, 1);
+      const firstCompletedAt = "2026-11-01T18:00:00.000Z";
+      testDb
+        .insert(schema.lessonProgress)
+        .values({
+          userId: base.user.id,
+          lessonId: lessons[0].id,
+          status: schema.LessonProgressStatus.Completed,
+          completedAt: firstCompletedAt,
+        })
+        .run();
 
-      markLessonComplete(base.user.id, lessons[0].id);
       const progress = markLessonComplete(base.user.id, lessons[0].id);
 
       expect(progress.status).toBe(schema.LessonProgressStatus.Completed);
+      expect(progress.completedAt).toBe(firstCompletedAt);
+      expect(getLessonProgress(base.user.id, lessons[0].id)?.completedAt).toBe(
+        firstCompletedAt
+      );
     });
   });
 

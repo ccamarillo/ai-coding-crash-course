@@ -59,11 +59,13 @@ export function markLessonComplete(userId: number, lessonId: number) {
   const existing = getLessonProgress(userId, lessonId);
 
   if (existing) {
+    // Only the first completion counts: re-completing keeps the original
+    // completedAt so the lesson's Study day never moves.
     return db
       .update(lessonProgress)
       .set({
         status: LessonProgressStatus.Completed,
-        completedAt: new Date().toISOString(),
+        completedAt: existing.completedAt ?? new Date().toISOString(),
       })
       .where(eq(lessonProgress.id, existing.id))
       .returning()
