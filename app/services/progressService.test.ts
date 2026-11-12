@@ -675,18 +675,16 @@ describe("progressService", () => {
       });
     });
 
-    it("finds today correctly on the New York fall-back day", () => {
-      // 2026-11-01 is 25 hours long in New York; now is 2026-11-01 23:30 EST.
-      completeAt(
-        "2026-10-31T15:00:00.000Z", // 2026-10-31 11:00 EDT
-        "2026-11-01T04:30:00.000Z" // 2026-11-01 00:30 EDT
-      );
+    it("finds yesterday correctly on the New York fall-back day", () => {
+      // 2026-11-01 is 25 hours long in New York; now is 2026-11-01 23:30 EST,
+      // where now − 24h would still land on 2026-11-01.
+      completeAt("2026-10-31T15:00:00.000Z"); // 2026-10-31 11:00 EDT
       const fallNow = new Date("2026-11-02T04:30:00.000Z");
 
       expect(getStreak(base.user.id, "America/New_York", fallNow)).toEqual({
-        current: 2,
-        longest: 2,
-        state: "today",
+        current: 1,
+        longest: 1,
+        state: "at-risk",
       });
     });
 

@@ -300,10 +300,10 @@ export type Streak = {
 const DAY_MS = 86_400_000;
 
 // Keyed by resolved zone IDs, so the map stays bounded.
-const studyDayFormatters = new Map<string, Intl.DateTimeFormat>();
+const localDayFormatters = new Map<string, Intl.DateTimeFormat>();
 
-function studyDayFormatter(timeZone: string) {
-  let formatter = studyDayFormatters.get(timeZone);
+function localDayFormatter(timeZone: string) {
+  let formatter = localDayFormatters.get(timeZone);
   if (!formatter) {
     formatter = new Intl.DateTimeFormat("en-CA", {
       timeZone,
@@ -313,15 +313,15 @@ function studyDayFormatter(timeZone: string) {
       month: "2-digit",
       day: "2-digit",
     });
-    studyDayFormatters.set(timeZone, formatter);
+    localDayFormatters.set(timeZone, formatter);
   }
   return formatter;
 }
 
 // UTC instant → epoch day number of its local calendar date in timeZone.
 // Throws RangeError on an unparseable instant.
-function toStudyDay(instant: Date, timeZone: string): number {
-  const parts = studyDayFormatter(timeZone).formatToParts(instant);
+function toLocalEpochDay(instant: Date, timeZone: string): number {
+  const parts = localDayFormatter(timeZone).formatToParts(instant);
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     Number(parts.find((p) => p.type === type)!.value);
   return Date.UTC(part("year"), part("month") - 1, part("day")) / DAY_MS;
@@ -347,7 +347,7 @@ export function getStreak(userId: number, timeZone: string, now: Date): Streak {
   if (rows.length === 0) return { current: 0, longest: 0, state: "empty" };
 
   const studyDays = [
-    ...new Set(rows.map((r) => toStudyDay(new Date(r.completedAt!), timeZone))),
+    ...new Set(rows.map((r) => toLocalEpochDay(new Date(r.completedAt!), timeZone))),
   ].sort((a, b) => a - b);
 
   let longest = 0;
@@ -358,7 +358,7 @@ export function getStreak(userId: number, timeZone: string, now: Date): Streak {
   }
 
   // `run` is now the Streak ending on the latest Study day.
-  const today = toStudyDay(now, timeZone);
+  const today = toLocalEpochDay(now, timeZone);
   const latest = studyDays[studyDays.length - 1];
 
   if (latest >= today) return { current: run, longest, state: "today" };
