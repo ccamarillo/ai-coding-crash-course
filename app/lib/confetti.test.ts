@@ -8,7 +8,7 @@ vi.mock("canvas-confetti", () => {
   return { default: confettiMock };
 });
 
-import { fireConfetti, CONFETTI_COLORS } from "./confetti";
+import { fireConfetti } from "./confetti";
 
 function stubWindow(prefersReducedMotion: boolean) {
   vi.stubGlobal("window", {
@@ -54,7 +54,6 @@ describe("fireConfetti", () => {
       "#ffb900",
       "#fe9a00",
     ]);
-    expect(CONFETTI_COLORS).toEqual(options.colors);
   });
 
   it("does nothing and does not throw when there is no window", async () => {

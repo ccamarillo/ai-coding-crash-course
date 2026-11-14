@@ -1,6 +1,6 @@
 // Hex equivalents of the light theme's --chart-1 … --chart-5 in app/app.css.
 // canvas-confetti only accepts hex, so keep these in sync with the stylesheet.
-export const CONFETTI_COLORS = [
+const CONFETTI_COLORS = [
   "#f54900",
   "#009689",
   "#104e64",
