@@ -106,7 +106,7 @@ export async function action({ params, request }: Route.ActionArgs) {
     throw redirect("/courses");
   }
 
-  throw redirect(`/courses/${course.slug}/welcome`);
+  throw redirect(`/courses/${course.slug}/welcome?enrolled=1`);
 }
 
 export default function Redeem({
