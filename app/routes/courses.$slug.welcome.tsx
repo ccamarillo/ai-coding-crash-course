@@ -1,8 +1,10 @@
-import { Link, redirect } from "react-router";
+import { useEffect, useRef } from "react";
+import { Link, redirect, useSearchParams } from "react-router";
 import type { Route } from "./+types/courses.$slug.welcome";
 import { getCourseBySlug, getCourseWithDetails } from "~/services/courseService";
 import { isUserEnrolled } from "~/services/enrollmentService";
 import { getCurrentUserId } from "~/lib/session";
+import { fireConfetti } from "~/lib/confetti";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import { PartyPopper, MessageCircle, PlayCircle } from "lucide-react";
@@ -48,6 +50,25 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 
 export default function Welcome({ loaderData }: Route.ComponentProps) {
   const { course, discordInviteUrl } = loaderData;
+  const [searchParams, setSearchParams] = useSearchParams();
+  // StrictMode re-runs effects in dev before the param is stripped; fire once.
+  const hasFiredConfetti = useRef(false);
+
+  useEffect(() => {
+    if (searchParams.get("enrolled") === "1") {
+      if (!hasFiredConfetti.current) {
+        hasFiredConfetti.current = true;
+        void fireConfetti();
+      }
+      setSearchParams(
+        (prev) => {
+          prev.delete("enrolled");
+          return prev;
+        },
+        { replace: true }
+      );
+    }
+  }, [searchParams, setSearchParams]);
 
   const firstLessonId =
     course.modules.length > 0 && course.modules[0].lessons.length > 0

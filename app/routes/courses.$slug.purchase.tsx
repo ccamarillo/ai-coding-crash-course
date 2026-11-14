@@ -148,7 +148,7 @@ export async function action({ params, request }: Route.ActionArgs) {
     }
     createPurchase(currentUserId, course.id, pppPrice, country);
     enrollUser(currentUserId, course.id, false, false);
-    throw redirect(`/courses/${slug}/welcome`);
+    throw redirect(`/courses/${slug}/welcome?enrolled=1`);
   }
 
   // Team purchase — user does NOT get enrolled themselves
